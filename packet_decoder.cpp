@@ -57,6 +57,7 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
   {
     std::lock_guard<std::mutex> lock(queueMutex);
     taskQueue.push(DecodeTask{pkts, interval, gopId, callback});
+    ++activeTasks;
   }
   queueCond.notify_one();
 }
