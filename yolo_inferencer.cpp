@@ -110,7 +110,7 @@ cv::Mat YoloInferencer::letterbox(const cv::Mat &src,
 
 int YoloInferencer::infer1(const InferenceInput &input) {
   if (!initialized)
-    return;
+    return -1;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
   doInference(task);
