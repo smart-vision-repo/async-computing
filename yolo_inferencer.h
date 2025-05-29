@@ -12,15 +12,14 @@
 #include <thread>
 #include <vector>
 
-struct InferenceInput {
-  std::vector<cv::Mat> decoded_frames;
-  std::string object_name;
-  float confidence_thresh;
-  int gopIdx;
-};
-
 class YoloInferencer {
 public:
+  struct InferenceInput {
+    std::vector<cv::Mat> decoded_frames;
+    std::string object_name;
+    float confidence_thresh;
+    int gopIdx;
+  };
   YoloInferencer();
   ~YoloInferencer();
 
