@@ -23,9 +23,21 @@ YoloInferencer::YoloInferencer() {
 
 YoloInferencer::~YoloInferencer() {
   running = false;
-  cv_task.notify_one();
+  cv_task.notify_all(); // 使用 notify_all 而不是 notify_one
+
   if (worker_thread.joinable()) {
-    worker_thread.join();
+    // 添加超时等待
+    auto timeout = std::chrono::seconds(5);
+    if (worker_thread.joinable()) {
+      std::thread killer([&]() {
+        std::this_thread::sleep_for(timeout);
+        if (worker_thread.joinable()) {
+          worker_thread.detach(); // 强制分离
+        }
+      });
+      killer.detach();
+      worker_thread.join();
+    }
   }
 }
 

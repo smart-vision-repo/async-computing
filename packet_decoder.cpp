@@ -1,5 +1,6 @@
 // packet_decoder.cpp
 #include "packet_decoder.h"
+#include "yolo_inferencer.h"
 #include <algorithm>
 #include <iostream>
 
@@ -9,7 +10,8 @@ extern "C" {
 
 PacketDecoder::PacketDecoder(std::string video_file_name)
     : video_file_name(video_file_name), vidIdx(-1), fmtCtx(nullptr),
-      codec(nullptr), codecpar(nullptr), stopThreads(false) {
+      codec(nullptr), codecpar(nullptr), stopThreads(false),
+      inferencer(nullptr) {
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
@@ -205,7 +207,13 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 
   try {
-    task.callback(std::move(filtered), task.gopId);
+    YoloInferencer::InferenceInput input;
+    input.confidence_thresh = 0.5f;
+    input.decoded_frames = filtered;
+    input.gopIdx = task.gopId;
+    input.object_name = "dog";
+    inferencer->infer(input);
+    // task.callback(std::move(filtered), task.gopId);
   } catch (const std::exception &e) {
     std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
               << e.what() << std::endl;
