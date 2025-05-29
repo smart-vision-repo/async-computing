@@ -43,12 +43,12 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
   success_decoded_frames += frames.size();
-  YoloInferencer::InferenceInput input;
+  InferenceInput input;
   input.decoded_frames = frames;
   input.object_name = object_name;
   input.confidence_thresh = confidence;
   input.gopIdx = gopId;
-  // inferencer.infer(input);
+  inferencer.infer(input);
 }
 
 int VideoProcessor::process() {
@@ -158,6 +158,7 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
   decoder.waitForAllTasks();
+  inferencer.waitForAllTasks();
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
   }
