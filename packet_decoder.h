@@ -42,7 +42,7 @@ private:
   AVFormatContext *fmtCtx;
   AVCodec *codec;
   AVCodecParameters *codecpar;
-  YoloInferencer *inferencer;
+  YoloInferencer inferencer;
 
   std::vector<std::thread> workers;
   std::queue<DecodeTask> taskQueue;

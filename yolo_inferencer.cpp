@@ -113,6 +113,7 @@ int YoloInferencer::infer1(const InferenceInput &input) {
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
+  doInference(task);
   return 0;
   // {
   //   std::lock_guard<std::mutex> lock(queue_mutex);
