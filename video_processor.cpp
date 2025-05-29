@@ -89,8 +89,6 @@ int VideoProcessor::process() {
   int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
-  float confidence = 0.38f;
-  std::string object_name = "dog";
   // 收集所有 GOP 的 packet，统一存储
   std::vector<std::vector<AVPacket *>> all_pkts;
 
