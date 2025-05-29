@@ -208,7 +208,7 @@ VideoProcessor::get_packets_for_decoding(std::vector<AVPacket *> *packages,
   return results;
 }
 
-void clear_av_packets(std::vector<AVPacket *> *pkts) {
+void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *pkts) {
   for (AVPacket *pkt : *pkts) {
     if (pkt) {
       av_packet_unref(pkt);
