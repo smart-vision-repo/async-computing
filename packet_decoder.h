@@ -1,6 +1,7 @@
 // packet_decoder.h
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -25,7 +26,7 @@ public:
 
   void decode(const std::vector<AVPacket *> &pkts, int interval, int gopId,
               DecodeCallback callback);
-  void waitForAllTasks();  // 等待所有任务完成并关闭线程池
+  void waitForAllTasks(); // 等待所有任务完成并关闭线程池
   void reset();
 
 private:
@@ -46,7 +47,9 @@ private:
   std::queue<DecodeTask> taskQueue;
   std::mutex queueMutex;
   std::condition_variable queueCond;
+  std::condition_variable doneCond;
   bool stopThreads;
+  std::atomic<int> activeTasks;
 
   void workerLoop();
   AVCodecContext *cloneDecoderContext();
