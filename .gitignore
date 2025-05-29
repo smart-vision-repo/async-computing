@@ -1,0 +1,98 @@
+# ----- C++ 编译生成的文件 -----
+.DS_Store
+*.o
+*.a
+*.so
+*.obj
+*.lib
+*.dll
+*.exe
+*.out
+*.app
+
+# ----- 调试文件 -----
+*.dSYM/
+*.su
+*.idb
+*.pdb
+*.ilk
+*.exp
+
+# ----- 预编译头文件 -----
+*.gch
+*.pch
+
+# ----- 日志和临时文件 -----
+*.log
+*.tmp
+
+# ----- 构建目录 -----
+build/
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+
+# ----- IDE相关文件 -----
+.vscode/
+.idea/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.cbp
+*.depend
+*.layout
+
+# ----- CMake生成的文件 -----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*.cmake
+
+# ----- 自动生成的文件 -----
+*.swp
+*~
+*.bak
+
+# ----- 依赖目录 -----
+deps/
+third_party/
+
+# ----- 测试相关 -----
+*.test
+*.gcda
+*.gcno
+*.gcov
+
+# ----- 文档生成 -----
+docs/html/
+docs/latex/
+
+# ===== 新增：视频和图片文件 =====
+# 图片文件
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+*.webp
+*.svg
+*.ico
+app_*
+
+# 视频文件
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.webm
+*.wmv
+*.mpg
+*.mpeg

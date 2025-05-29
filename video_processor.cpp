@@ -74,7 +74,7 @@ int VideoProcessor::process() {
     return -1;
   }
 
-  YoloInferencer yolo_inferencer;
+  YoloInferencer inferencer;
 
   int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
@@ -82,6 +82,8 @@ int VideoProcessor::process() {
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
   int success = 0;
+  float confidence = 0.38f;
+  std::string object_name = "dog";
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
     if (packet->stream_index == videoStream) {
@@ -103,11 +105,15 @@ int VideoProcessor::process() {
               get_packets_for_decoding(pkts, last_frame_in_gop);
           // decoder.reset();
           decoder.decode(decoding_pkts, interval);
-          std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-          int decoded_frame_size = decoded_frames.size();
-          success += decoded_frame_size;
-          if (decoded_frame_size > 0) {
-            yolo_inferencer.infer(decoded_frames, "dog", 0.6f);
+          std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+          success += decoded_pks.size();
+          if (!decoded_pks.empty()) {
+            YoloInferencer::InferenceInput input;
+            input.decoded_frames = decoded_pks;
+            input.object_name = object_name;      // 指定要检测的目标
+            input.confidence_thresh = confidence; // 指定置信度阈值
+            input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
+            inferencer.infer(input);
           }
           // std::cout << "decoded: " << decoded_frams.size() << std::endl;
           total_packages += decoding_pkts.size();
@@ -136,9 +142,16 @@ int VideoProcessor::process() {
         get_packets_for_decoding(pkts, last_frame_in_gop);
     // decoder.reset();
     decoder.decode(decoding_pkts, interval);
-    std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-    success += decoded_frams.size();
-    // std::cout << "decoded: " << decoded_frams.size() << std::endl;
+    std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+    success += decoded_pks.size();
+    if (!decoded_pks.empty()) {
+      YoloInferencer::InferenceInput input;
+      input.decoded_frames = decoded_pks;
+      input.object_name = object_name;      // 指定要检测的目标
+      input.confidence_thresh = confidence; // 指定置信度阈值
+      input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
+      inferencer.infer(input);
+    }
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
     if (last_frame_in_gop > 0) {
