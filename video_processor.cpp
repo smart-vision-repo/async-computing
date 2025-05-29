@@ -39,6 +39,11 @@ VideoProcessor::~VideoProcessor() {
   // 清理逻辑（如有）
 }
 
+void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+  std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
+            << std::endl;
+}
+
 int VideoProcessor::process() {
   const char *video_file_path = video_file_name.c_str();
   AVFormatContext *fmtCtx = nullptr;
@@ -72,11 +77,6 @@ int VideoProcessor::process() {
     std::cerr << "Could not allocate AVPacket" << std::endl;
     avformat_close_input(&fmtCtx);
     return -1;
-  }
-
-  void onDecoded(std::vector<cv::Mat> && frames, int gopId) {
-    std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
-              << std::endl;
   }
 
   YoloInferencer inferencer;
