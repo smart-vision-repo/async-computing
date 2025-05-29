@@ -58,8 +58,6 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
     std::lock_guard<std::mutex> lock(queueMutex);
     taskQueue.push(DecodeTask{pkts, interval, gopId, callback});
     ++activeTasks;
-    std::cout << "[Dispatch] Task GOP " << gopId
-              << " dispatched. Total active: " << activeTasks << "\n";
   }
   queueCond.notify_one();
 }
@@ -179,8 +177,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   {
     std::lock_guard<std::mutex> lock(queueMutex);
     --activeTasks;
-    std::cout << "[Complete] GOP " << task.gopId
-              << " finished. Remaining: " << activeTasks << "\n";
     if (activeTasks == 0 && taskQueue.empty()) {
       doneCond.notify_all(); // 唤醒 wait
     }
@@ -204,6 +200,4 @@ void PacketDecoder::waitForAllTasks() {
     if (t.joinable())
       t.join();
   }
-
-  std::cout << "[Done] All tasks completed and threads joined\n";
 }
