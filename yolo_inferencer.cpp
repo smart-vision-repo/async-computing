@@ -141,18 +141,22 @@ void YoloInferencer::doInference(const InferenceTask &task) {
     net.setInput(blob);
     Mat output = net.forward();
 
-    std::cout << "[DEBUG] Output dims: " << output.size[0] << " x "
-              << output.size[1] << " x " << output.size[2] << std::endl;
+    std::cout << "[DEBUG] Output dims: ";
+    for (int i = 0; i < output.dims; ++i) {
+      std::cout << output.size[i] << (i < output.dims - 1 ? " x " : "\n");
+    }
 
-    const int rows = output.size[1];
-    for (int i = 0; i < rows; ++i) {
-      float *data = output.ptr<float>(0, i);
+    const int num_preds = output.size[2];
+    const int num_attrs = output.size[1];
+
+    for (int i = 0; i < num_preds; ++i) {
+      float *data = output.ptr<float>(0, 0) + i * num_attrs;
       float obj_conf = sigmoid(data[4]);
 
       float max_score = 0.0f;
       int class_id = -1;
       for (int c = 5; c < 5 + num_classes; ++c) {
-        float cls_score = data[c]; // 不再使用 sigmoid
+        float cls_score = data[c];
         if (cls_score > max_score) {
           max_score = cls_score;
           class_id = c - 5;
@@ -160,6 +164,13 @@ void YoloInferencer::doInference(const InferenceTask &task) {
       }
 
       float final_conf = obj_conf * max_score;
+      std::cout << "[DEBUG] Frame " << frame_idx << ", class_id = " << class_id
+                << ", final_conf = " << final_conf << ", class_name = "
+                << (class_id >= 0 && class_id < class_names.size()
+                        ? class_names[class_id]
+                        : "INVALID")
+                << std::endl;
+
       if (final_conf >= task.confidence_thresh && class_id >= 0 &&
           class_id < static_cast<int>(class_names.size()) &&
           class_names[class_id] == task.object_name) {
