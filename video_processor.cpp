@@ -29,9 +29,9 @@ extern "C" {
 #include <opencv2/opencv.hpp>
 
 VideoProcessor::VideoProcessor(const std::string &video_file_name, int interval)
-    : decoder(const_cast<std::string &>(
-          video_file_name)), // 如果需要其他 codec，可以替换
-      video_file_name(video_file_name), interval(interval) {
+    : decoder(const_cast<std::string &>(video_file_name)),
+      success_decoded_frames(0), video_file_name(video_file_name),
+      interval(interval) {
   // 其他初始化逻辑
 }
 
@@ -39,7 +39,8 @@ VideoProcessor::~VideoProcessor() {
   // 清理逻辑（如有）
 }
 
-static void onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+  success_decoded_frames = +frames.size();
   std::cout << "id: " << gopId << ", frames: " << frames.size() << std::endl;
   //   YoloInferencer::InferenceInput input;
   //   input.decoded_frames = decoded_pks;
@@ -91,7 +92,6 @@ int VideoProcessor::process() {
   int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
-  int success = 0;
   float confidence = 0.38f;
   std::string object_name = "dog";
   // 收集所有 GOP 的 packet，统一存储
@@ -115,7 +115,10 @@ int VideoProcessor::process() {
           pool = frame_idx_in_gop - last_frame_in_gop;
           std::vector<AVPacket *> decoding_pkts =
               get_packets_for_decoding(pkts, last_frame_in_gop);
-          decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
+          decoder.decode(decoding_pkts, interval, gop_idx,
+                         [this](std::vector<cv::Mat> frames, int gopId) {
+                           this->onDecoded(std::move(frames), gopId);
+                         });
           all_pkts.push_back(std::move(decoding_pkts));
         } else {
           pool += frame_idx_in_gop;
@@ -139,7 +142,10 @@ int VideoProcessor::process() {
   if (hits > 0) {
     std::vector<AVPacket *> decoding_pkts =
         get_packets_for_decoding(pkts, last_frame_in_gop);
-    decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
+    decoder.decode(decoding_pkts, interval, gop_idx,
+                   [this](std::vector<cv::Mat> frames, int gopId) {
+                     this->onDecoded(std::move(frames), gopId);
+                   });
     all_pkts.push_back(std::move(decoding_pkts));
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
@@ -174,7 +180,7 @@ int VideoProcessor::process() {
             << "discrepancies: " << frame_idx - decoded_frames - skipped_frames
             << std::endl
             << "percentage: " << percentage << "%" << std::endl
-            << "successfully decoded: " << success << std::endl
+            << "successfully decoded: " << success_decoded_frames << std::endl
             << "extracted frames: " << total_hits << std::endl;
   return 0;
 }

@@ -16,7 +16,7 @@ public:
   int process();
 
 private:
-  //   void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
+  void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);
   std::vector<AVPacket *>
@@ -26,6 +26,7 @@ private:
   PacketDecoder decoder;
   std::string video_file_name;
   int interval;
+  int success_decoded_frames = 0;
 };
 
 #endif // VIDEO_PROCESSOR_H
