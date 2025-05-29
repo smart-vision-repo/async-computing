@@ -53,9 +53,19 @@ bool PacketDecoder::initialize() {
 
 void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
                            int gopId, DecodeCallback callback) {
+  std::vector<AVPacket *> copied_pkts;
+  for (const auto *pkt : pkts) {
+    if (!pkt)
+      continue;
+    AVPacket *clone = av_packet_alloc();
+    if (clone && av_packet_ref(clone, pkt) == 0) {
+      copied_pkts.push_back(clone);
+    }
+  }
+
   {
     std::lock_guard<std::mutex> lock(queueMutex);
-    taskQueue.push(DecodeTask{pkts, interval, gopId, callback});
+    taskQueue.push(DecodeTask{copied_pkts, interval, gopId, callback});
     ++activeTasks;
   }
   queueCond.notify_one();
@@ -151,6 +161,11 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
     av_packet_unref(local_pkt);
     av_packet_free(&local_pkt);
+
+    if (pkt) {
+      av_packet_unref(pkt);
+      av_packet_free(&pkt);
+    }
   }
 
   // flush
