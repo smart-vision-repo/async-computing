@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <opencv2/imgcodecs.hpp>
 
 using namespace cv;
 using namespace cv::dnn;
