@@ -116,6 +116,17 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       continue;
     }
 
+    if (!pkt) {
+      std::cerr << "[Error] Null packet pointer\n";
+      continue;
+    }
+    if (pkt->size == 0 || !pkt->data) {
+      std::cerr << "[Error] Empty packet data in GOP " << task.gopId << "\n";
+      continue;
+    }
+
+    std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
+
     pkt->stream_index = vidIdx;
     if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
@@ -128,6 +139,11 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
       cv::Mat mat(frame->height, frame->width, CV_8UC3);
       if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
+        if (!frame->data[0]) {
+          std::cerr << "[Error] frame->data[0] is nullptr in GOP " << task.gopId
+                    << "\n";
+          continue;
+        }
         cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
                     frame->data[0]);
         cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
