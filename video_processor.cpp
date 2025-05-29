@@ -104,7 +104,6 @@ int VideoProcessor::process() {
           // decoder.reset();
           decoder.decode(decoding_pkts, interval);
           std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-          std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
           success += decoded_frams.size();
           if (!decoded_frams.empty()) {
             yolo_inferencer.infer(decoded_frams, "dog",
