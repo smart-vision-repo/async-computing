@@ -74,6 +74,11 @@ int VideoProcessor::process() {
     return -1;
   }
 
+  void onDecoded(std::vector<cv::Mat> && frames, int gopId) {
+    std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
+              << std::endl;
+  }
+
   YoloInferencer inferencer;
 
   int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
@@ -101,8 +106,10 @@ int VideoProcessor::process() {
           decoded_frames += last_frame_in_gop;
           total_hits += hits;
           pool = frame_idx_in_gop - last_frame_in_gop;
-          // std::vector<AVPacket *> decoding_pkts =
-          //     get_packets_for_decoding(pkts, last_frame_in_gop);
+
+          std::vector<AVPacket *> decoding_pkts =
+              get_packets_for_decoding(pkts, last_frame_in_gop);
+          decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
           // // decoder.reset();
           // decoder.decode(decoding_pkts, interval);
           // std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
@@ -138,8 +145,9 @@ int VideoProcessor::process() {
 
   int last_frame_in_gop = 0;
   if (hits > 0) {
-    // std::vector<AVPacket *> decoding_pkts =
-    //     get_packets_for_decoding(pkts, last_frame_in_gop);
+    std::vector<AVPacket *> decoding_pkts =
+        get_packets_for_decoding(pkts, last_frame_in_gop);
+    decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
     // // decoder.reset();
     // decoder.decode(decoding_pkts, interval);
     // std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
