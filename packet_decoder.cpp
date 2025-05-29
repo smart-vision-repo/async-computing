@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <iostream>
 
+extern "C" {
+#include <libswscale/swscale.h>
+}
+
 PacketDecoder::PacketDecoder(std::string video_file_name)
     : video_file_name(video_file_name), vidIdx(-1), fmtCtx(nullptr),
       codec(nullptr), codecpar(nullptr), stopThreads(false) {
@@ -113,7 +117,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
   std::vector<cv::Mat> decoded;
   AVFrame *frame = av_frame_alloc();
-
   avcodec_flush_buffers(ctx);
 
   for (AVPacket *pkt : task.pkts) {
@@ -135,17 +138,25 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       if (ret < 0)
         break;
 
-      if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
-        try {
-          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                      frame->data[0]);
-          cv::Mat mat;
-          cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
-          decoded.push_back(std::move(mat));
-        } catch (...) {
-          std::cerr << "[Error] Failed to convert frame\n";
-        }
+      SwsContext *swsCtx = sws_getContext(
+          frame->width, frame->height, (AVPixelFormat)frame->format,
+          frame->width, frame->height, AV_PIX_FMT_BGR24, SWS_BILINEAR, nullptr,
+          nullptr, nullptr);
+
+      if (!swsCtx) {
+        std::cerr << "[Error] sws_getContext failed\n";
+        continue;
       }
+
+      cv::Mat bgr(frame->height, frame->width, CV_8UC3);
+      uint8_t *dest[1] = {bgr.data};
+      int dest_linesize[1] = {static_cast<int>(bgr.step)};
+
+      sws_scale(swsCtx, frame->data, frame->linesize, 0, frame->height, dest,
+                dest_linesize);
+      sws_freeContext(swsCtx);
+
+      decoded.push_back(std::move(bgr));
       av_frame_unref(frame);
     }
   }
@@ -158,17 +169,25 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     if (ret < 0)
       break;
 
-    if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
-      try {
-        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                    frame->data[0]);
-        cv::Mat mat;
-        cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
-        decoded.push_back(std::move(mat));
-      } catch (...) {
-        std::cerr << "[Error] Failed to convert frame (flush)\n";
-      }
+    SwsContext *swsCtx = sws_getContext(
+        frame->width, frame->height, (AVPixelFormat)frame->format, frame->width,
+        frame->height, AV_PIX_FMT_BGR24, SWS_BILINEAR, nullptr, nullptr,
+        nullptr);
+
+    if (!swsCtx) {
+      std::cerr << "[Error] sws_getContext failed (flush)\n";
+      continue;
     }
+
+    cv::Mat bgr(frame->height, frame->width, CV_8UC3);
+    uint8_t *dest[1] = {bgr.data};
+    int dest_linesize[1] = {static_cast<int>(bgr.step)};
+
+    sws_scale(swsCtx, frame->data, frame->linesize, 0, frame->height, dest,
+              dest_linesize);
+    sws_freeContext(swsCtx);
+
+    decoded.push_back(std::move(bgr));
     av_frame_unref(frame);
   }
 
@@ -179,15 +198,15 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     filtered.push_back(std::move(decoded[i]));
   }
 
-  // try {
-  //   task.callback(std::move(filtered), task.gopId);
-  // } catch (const std::exception &e) {
-  //   std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
-  //   << e.what() << std::endl;
-  // } catch (...) {
-  //   std::cerr << "[Error] Unknown exception in callback for GOP " <<
-  //   task.gopId << std::endl;
-  // }
+  try {
+    task.callback(std::move(filtered), task.gopId);
+  } catch (const std::exception &e) {
+    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
+              << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId
+              << std::endl;
+  }
 
   for (AVPacket *pkt : task.pkts) {
     if (pkt) {
@@ -202,22 +221,5 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     if (activeTasks == 0 && taskQueue.empty()) {
       doneCond.notify_all();
     }
-  }
-}
-
-void PacketDecoder::reset() {}
-
-void PacketDecoder::waitForAllTasks() {
-  std::unique_lock<std::mutex> lock(queueMutex);
-  doneCond.wait(lock,
-                [this]() { return taskQueue.empty() && activeTasks == 0; });
-
-  stopThreads = true;
-  queueCond.notify_all();
-  lock.unlock();
-
-  for (auto &t : workers) {
-    if (t.joinable())
-      t.join();
   }
 }
