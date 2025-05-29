@@ -74,7 +74,7 @@ int VideoProcessor::process() {
     return -1;
   }
 
-  YoloInferencer yolo_inferencer;
+  YoloInferencer inferencer;
 
   int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
@@ -103,11 +103,15 @@ int VideoProcessor::process() {
               get_packets_for_decoding(pkts, last_frame_in_gop);
           // decoder.reset();
           decoder.decode(decoding_pkts, interval);
-          std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-          success += decoded_frams.size();
-          if (!decoded_frams.empty()) {
-            yolo_inferencer.infer(decoded_frams, "dog",
-                                  0.1f); // 仅在有有效帧时推理
+          std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+          success += decoded_pks.size();
+          if (!decoded_pks.empty()) {
+            YoloInferencer::InferenceInput input;
+            input.decoded_frames = decoded_pks;
+            input.object_name = "dog";      // 指定要检测的目标
+            input.confidence_thresh = 0.3f; // 指定置信度阈值
+            input.gopIdx = gop_idx;         // GOP 索引，需你自己维护
+            inferencer.infer(input);
           }
           // std::cout << "decoded: " << decoded_frams.size() << std::endl;
           total_packages += decoding_pkts.size();
@@ -136,9 +140,16 @@ int VideoProcessor::process() {
         get_packets_for_decoding(pkts, last_frame_in_gop);
     // decoder.reset();
     decoder.decode(decoding_pkts, interval);
-    std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-    success += decoded_frams.size();
-    // std::cout << "decoded: " << decoded_frams.size() << std::endl;
+    std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+    success += decoded_pks.size();
+    if (!decoded_pks.empty()) {
+      YoloInferencer::InferenceInput input;
+      input.decoded_frames = decoded_pks;
+      input.object_name = "dog";      // 指定要检测的目标
+      input.confidence_thresh = 0.3f; // 指定置信度阈值
+      input.gopIdx = gop_idx;         // GOP 索引，需你自己维护
+      inferencer.infer(input);
+    }
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
     if (last_frame_in_gop > 0) {
