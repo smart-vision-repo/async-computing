@@ -34,7 +34,7 @@ check_gpp() {
 # Setup environment variables and compile
 compile() {
     local output_name="app_video_processor"
-    local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp)
+    local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp message_proxy.cpp)
 
     log_info "Checking for pkg-config and dependencies..."
 
@@ -43,15 +43,15 @@ compile() {
         exit 1
     fi
 
-    if ! pkg-config --exists libavformat libavcodec libavutil libswscale opencv4; then
+    if ! pkg-config --exists libavformat libavcodec libavutil libswscale opencv4 libSimpleAmqpClient; then
         log_error "Required libraries not found via pkg-config."
         exit 1
     fi
 
     log_success "All required libraries found."
 
-    FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale)
-    FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale)
+    FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
+    FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
     OPENCV_CFLAGS=$(pkg-config --cflags opencv4)
     OPENCV_LIBS=$(pkg-config --libs opencv4)
 

@@ -24,6 +24,7 @@
         "__node_handle": "cpp",
         "forward_list": "cpp",
         "*.ipp": "cpp",
-        "any": "cpp"
+        "any": "cpp",
+        "cstdlib": "cpp"
     }
 }
