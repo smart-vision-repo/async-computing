@@ -40,8 +40,7 @@ VideoProcessor::~VideoProcessor() {
 }
 
 static void onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
-            << std::endl;
+  std::cout << "id: " << gopId << ", frames: " << frames.size() << std::endl;
   //   YoloInferencer::InferenceInput input;
   //   input.decoded_frames = decoded_pks;
   //   input.object_name = object_name;      // 指定要检测的目标
