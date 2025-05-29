@@ -13,33 +13,13 @@ YoloInferencer::YoloInferencer() {
     loadClassNamesFromEnv();
     loadModelFromEnv();
     initialized = true;
-    running = true;
-    worker_thread = std::thread(&YoloInferencer::processLoop, this);
   } catch (const std::exception &e) {
     std::cerr << "YoloInferencer init failed: " << e.what() << std::endl;
     initialized = false;
   }
 }
 
-YoloInferencer::~YoloInferencer() {
-  running = false;
-  cv_task.notify_all(); // 使用 notify_all 而不是 notify_one
-
-  if (worker_thread.joinable()) {
-    // 添加超时等待
-    auto timeout = std::chrono::seconds(5);
-    if (worker_thread.joinable()) {
-      std::thread killer([&]() {
-        std::this_thread::sleep_for(timeout);
-        if (worker_thread.joinable()) {
-          worker_thread.detach(); // 强制分离
-        }
-      });
-      killer.detach();
-      worker_thread.join();
-    }
-  }
-}
+YoloInferencer::~YoloInferencer() {}
 
 void YoloInferencer::loadClassNamesFromEnv() {
   const char *names_path = std::getenv("YOLO_COCO_NAMES");
@@ -108,64 +88,11 @@ cv::Mat YoloInferencer::letterbox(const cv::Mat &src,
   return output;
 }
 
-int YoloInferencer::infer1(const InferenceInput &input) {
-  if (!initialized)
-    return -1;
-  InferenceTask task{input.decoded_frames, input.object_name,
-                     input.confidence_thresh, input.gopIdx};
-  doInference(task);
-  return 0;
-  // {
-  //   std::lock_guard<std::mutex> lock(queue_mutex);
-  //   task_queue.push(std::move(task));
-  //   ++active_tasks;
-  // }
-  // cv_task.notify_one();
-}
-
 void YoloInferencer::infer(const InferenceInput &input) {
   if (!initialized)
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
-  doInference(task);
-  // {
-  //   std::lock_guard<std::mutex> lock(queue_mutex);
-  //   task_queue.push(std::move(task));
-  //   ++active_tasks;
-  // }
-  // cv_task.notify_one();
-}
-
-void YoloInferencer::processLoop() {
-  while (running) {
-    InferenceTask task;
-    {
-      std::unique_lock<std::mutex> lock(queue_mutex);
-      cv_task.wait(lock, [&] { return !task_queue.empty() || !running; });
-      if (!running && task_queue.empty())
-        break;
-      if (!task_queue.empty()) {
-        task = std::move(task_queue.front());
-        task_queue.pop();
-      } else {
-        continue;
-      }
-    }
-
-    doInference(task);
-
-    {
-      std::lock_guard<std::mutex> lock(queue_mutex);
-      --active_tasks;
-      if (active_tasks == 0 && task_queue.empty()) {
-        done_cv.notify_all();
-      }
-    }
-  }
-}
-
-void YoloInferencer::doInference(const YoloInferencer::InferenceTask &task) {
   auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
 
   for (size_t frame_idx = 0; frame_idx < task.frames.size(); ++frame_idx) {
@@ -286,9 +213,4 @@ void YoloInferencer::doInference(const YoloInferencer::InferenceTask &task) {
                 << std::endl;
     }
   }
-}
-
-void YoloInferencer::waitForAllTasks() {
-  std::unique_lock<std::mutex> lock(queue_mutex);
-  done_cv.wait(lock, [&]() { return active_tasks == 0 && task_queue.empty(); });
 }

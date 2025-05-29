@@ -80,7 +80,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
     std::lock_guard<std::mutex> lock(infer_mutex);
     infer_inputs.push(std::move(input));
   }
-  infer_cv.notify_one();
+  infer_cv.notify_all();
 }
 
 int VideoProcessor::process() {
