@@ -2,7 +2,6 @@
 #define VIDEO_PROCESSOR_H
 
 #include "packet_decoder.h"
-#include "yolo_inferencer.h"
 #include <string>
 #include <vector>
 extern "C" {
@@ -32,7 +31,7 @@ private:
   float confidence;
   int interval;
   int success_decoded_frames;
-  YoloInferencer inferencer;
+  //   YoloInferencer inferencer;
 };
 
 #endif // VIDEO_PROCESSOR_H

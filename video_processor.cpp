@@ -1,7 +1,6 @@
 // video_processor.cpp
 
 #include "video_processor.h"
-#include "yolo_inferencer.h"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -37,11 +36,10 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
                                int interval)
     : decoder(const_cast<std::string &>(video_file_name)),
       success_decoded_frames(0), video_file_name(video_file_name),
-      interval(interval), inferencer(), object_name(object_name),
-      confidence(confidence) {}
+      interval(interval), object_name(object_name), confidence(confidence) {}
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  // std::cout << gopId << "," << frames.size() << std::endl;
+  std::cout << gopId << "," << frames.size() << std::endl;
   // success_decoded_frames += frames.size();
   // YoloInferencer::InferenceInput input;
   // input.decoded_frames = frames;
@@ -158,7 +156,6 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
   decoder.waitForAllTasks();
-  inferencer.waitForAllTasks();
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
   }
