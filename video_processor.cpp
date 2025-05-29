@@ -38,18 +38,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     : decoder(const_cast<std::string &>(video_file_name)),
       success_decoded_frames(0), video_file_name(video_file_name),
       interval(interval), inferencer(), object_name(object_name),
-      confidence(confidence) {
-  if (video_file_name.empty() || object_name.empty() || confidence <= 0.0f ||
-      confidence >= 1.0f || interval <= 0) {
-    throw std::invalid_argument("Usage: VideoProcessor(video_file_name, "
-                                "object_name, confidence, interval)\n"
-                                "  - video_file_name: non-empty string\n"
-                                "  - object_name: non-empty string\n"
-                                "  - confidence: float between 0.0 and 1.0\n"
-                                "  - interval: positive integer");
-  }
-  // 其他初始化逻辑
-}
+      confidence(confidence) {}
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;

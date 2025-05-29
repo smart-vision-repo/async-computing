@@ -1,34 +1,48 @@
-#include <iostream>
 #include "video_processor.h"
 #include <filesystem>
+#include <iostream>
+
+void usage(const char *program_name) {
+  std::cerr << "Usage: " << program_name
+            << " <video_file_name> <object_name> <confidence> <interval>\n"
+            << "  - video_file_name: non-empty string\n"
+            << "  - object_name: non-empty string\n"
+            << "  - confidence: float between 0.0 and 1.0\n"
+            << "  - interval: positive integer\n";
+}
+
+bool validateArguments(int argc, char *argv[]) {
+  if (argc != 5) {
+    usage(argv[0]);
+    return false;
+  }
+
+  try {
+    float confidence = std::stof(argv[3]);
+    int interval = std::stoi(argv[4]);
+
+    if (argv[1][0] == '\0' || argv[2][0] == '\0' || confidence <= 0.0f ||
+        confidence >= 1.0f || interval <= 0) {
+      usage(argv[0]);
+      return false;
+    }
+  } catch (const std::exception &e) {
+    usage(argv[0]);
+    return false;
+  }
+
+  return true;
+}
 
 int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        std::cout << "Usage: " << argv[0] << " <video_file> <interval>" << std::endl;
-        return -1;
-    }
-
-    int interval = 0;
-    try {
-        interval = std::stoi(argv[2]);
-        if (interval <= 0) {
-            std::cout << "Interval must be a positive integer." << std::endl;
-            return -1;
-        }
-    } catch (const std::invalid_argument &ia) {
-        std::cout << "Invalid interval argument: " << argv[2] << std::endl;
-        return -1;
-    } catch (const std::out_of_range &oor) {
-        std::cout << "Interval argument out of range: " << argv[2] << std::endl;
-        return -1;
-    }
-
-    std::string video_file_name = argv[1];
-    if (!std::filesystem::exists(video_file_name)) {
-        std::cout << "Video file does not exist: " << video_file_name << std::endl;
-        return -1;
-    }
-
-    VideoProcessor processor(video_file_name, interval);
-    return processor.process();
+  if (!validateArguments(argc, argv)) {
+    return 1;
+  }
+  int interval = 0;
+  std::string video_file_name = argv[1];
+  std::string object_name = argv[2];
+  float confidence = std::stof(argv[3]);
+  interval = std::stoi(argv[4]);
+  VideoProcessor processor(video_file_name, object_name, confidence, interval);
+  return processor.process();
 }
