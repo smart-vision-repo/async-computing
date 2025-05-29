@@ -113,12 +113,13 @@ void YoloInferencer::infer(const InferenceInput &input) {
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
-  {
-    std::lock_guard<std::mutex> lock(queue_mutex);
-    task_queue.push(std::move(task));
-    ++active_tasks;
-  }
-  cv_task.notify_one();
+  doInference(task);
+  // {
+  //   std::lock_guard<std::mutex> lock(queue_mutex);
+  //   task_queue.push(std::move(task));
+  //   ++active_tasks;
+  // }
+  // cv_task.notify_one();
 }
 
 void YoloInferencer::processLoop() {
