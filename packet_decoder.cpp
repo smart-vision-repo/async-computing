@@ -156,6 +156,12 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 
   task.callback(std::move(filtered), task.gopId);
+  --activeTasks;
+
+  std::lock_guard<std::mutex> lock(queueMutex);
+  if (activeTasks == 0 && taskQueue.empty()) {
+    doneCond.notify_all(); // ✅ 唤醒 wait
+  }
 }
 
 void PacketDecoder::reset() {
@@ -163,20 +169,15 @@ void PacketDecoder::reset() {
 }
 
 void PacketDecoder::waitForAllTasks() {
-  while (true) {
-    {
-      std::lock_guard<std::mutex> lock(queueMutex);
-      if (taskQueue.empty())
-        break;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
-  }
-  // 等任务消费完，让线程退出
-  {
-    std::lock_guard<std::mutex> lock(queueMutex);
-    stopThreads = true;
-  }
+  std::unique_lock<std::mutex> lock(queueMutex);
+  doneCond.wait(lock,
+                [this]() { return taskQueue.empty() && activeTasks == 0; });
+
+  // 停止线程池
+  stopThreads = true;
   queueCond.notify_all();
+  lock.unlock();
+
   for (auto &t : workers) {
     if (t.joinable())
       t.join();
