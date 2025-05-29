@@ -149,7 +149,8 @@ void YoloInferencer::doInference(const InferenceTask &task) {
       float max_score = 0.0f;
       int class_id = -1;
       for (int c = 5; c < 5 + num_classes; ++c) {
-        float cls_score = sigmoid(data[c]);
+        // float cls_score = sigmoid(data[c]);
+        float cls_score = data[c];
         if (cls_score > max_score) {
           max_score = cls_score;
           class_id = c - 5;
