@@ -31,7 +31,7 @@ private:
   std::string object_name;
   float confidence;
   int interval;
-  int success_decoded_frames = 0;
+  int success_decoded_frames;
   YoloInferencer inferencer;
 };
 
