@@ -126,97 +126,96 @@ void YoloInferencer::processLoop() {
 }
 
 // 修复后的 doInference 方法
-void YoloInferencer::doInference(const InferenceTask& task) {
-    auto sigmoid = [](float x) {
-        return 1.f / (1.f + std::exp(-x));
-    };
+void YoloInferencer::doInference(const InferenceTask &task) {
+  auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
 
-    // 定义输入尺寸（根据你的模型调整）
-    const cv::Size input_size(640, 640);  // 或者 (416, 416), (320, 320)
+  // 定义输入尺寸（根据你的模型调整）
+  const cv::Size input_size(640, 640); // 或者 (416, 416), (320, 320)
 
-    for (size_t frame_idx = 0; frame_idx < task.frames.size(); ++frame_idx) {
-        const Mat& frame = task.frames[frame_idx];
+  for (size_t frame_idx = 0; frame_idx < task.frames.size(); ++frame_idx) {
+    const Mat &frame = task.frames[frame_idx];
 
-        float scale = 1.0f;
-        Point pad;
-        Mat padded = letterbox(frame, input_size, 32, Scalar(114, 114, 114), &scale, &pad);
+    float scale = 1.0f;
+    Point pad;
+    Mat padded =
+        letterbox(frame, input_size, 32, Scalar(114, 114, 114), &scale, &pad);
 
-        std::string img_path = "debug_gop" + std::to_string(task.gopIdx) + "_frame_" + std::to_string(frame_idx) + ".jpg";
-        imwrite(img_path, padded);
+    std::string img_path = "debug_gop" + std::to_string(task.gopIdx) +
+                           "_frame_" + std::to_string(frame_idx) + ".jpg";
+    imwrite(img_path, padded);
 
-        Mat blob;
-        blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
-        net.setInput(blob);
-        Mat output = net.forward();
+    Mat blob;
+    blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
+    net.setInput(blob);
+    Mat output = net.forward();
 
-        // 修正：正确解析YOLO输出格式
-        const int num_preds = output.size[2];
-        const int num_attrs = output.size[1];
-        
-        std::vector<cv::Rect> boxes;
-        std::vector<float> confidences;
-        std::vector<int> class_ids;
+    // 修正：正确解析YOLO输出格式
+    const int num_preds = output.size[2];
+    const int num_attrs = output.size[1];
 
-        for (int i = 0; i < num_preds; ++i) {
-            float* data = output.ptr<float>(0, 0) + i * num_attrs;
+    std::vector<cv::Rect> boxes;
+    std::vector<float> confidences;
+    std::vector<int> class_ids;
 
-            // 修正：正确读取YOLO输出
-            // data[0-3]: 边界框坐标 (center_x, center_y, width, height)
-            // data[4]: objectness分数
-            // data[5+]: 类别分数
-            
-            float objectness = sigmoid(data[4]);
-            
-            // 找到最高分的类别
-            float max_class_score = -1e9;
-            int class_id = -1;
-            for (int c = 0; c < num_classes; ++c) {
-                float cls_score = data[5 + c];  // 修正：从索引5开始读取类别分数
-                if (cls_score > max_class_score) {
-                    max_class_score = cls_score;
-                    class_id = c;
-                }
-            }
+    for (int i = 0; i < num_preds; ++i) {
+      float *data = output.ptr<float>(0, 0) + i * num_attrs;
 
-            // 修正：正确计算最终置信度
-            float class_score = sigmoid(max_class_score);
-            float final_conf = objectness * class_score;
+      // 修正：正确读取YOLO输出
+      // data[0-3]: 边界框坐标 (center_x, center_y, width, height)
+      // data[4]: objectness分数
+      // data[5+]: 类别分数
 
-            // 检查是否为目标物体且置信度足够
-            if (final_conf >= task.confidence_thresh &&
-                class_id >= 0 &&
-                class_id < static_cast<int>(class_names.size()) &&
-                class_names[class_id] == task.object_name)
-            {
-                // 计算边界框（从归一化坐标转换为像素坐标）
-                float center_x = data[0] * input_size.width;
-                float center_y = data[1] * input_size.height;
-                float width = data[2] * input_size.width;
-                float height = data[3] * input_size.height;
-                
-                float x = center_x - width / 2;
-                float y = center_y - height / 2;
-                
-                boxes.push_back(cv::Rect(static_cast<int>(x), static_cast<int>(y), 
-                                       static_cast<int>(width), static_cast<int>(height)));
-                confidences.push_back(final_conf);
-                class_ids.push_back(class_id);
-            }
+      float objectness = sigmoid(data[4]);
+
+      // 找到最高分的类别
+      float max_class_score = -1e9;
+      int class_id = -1;
+      for (int c = 0; c < num_classes; ++c) {
+        float cls_score = data[5 + c]; // 修正：从索引5开始读取类别分数
+        if (cls_score > max_class_score) {
+          max_class_score = cls_score;
+          class_id = c;
         }
+      }
 
-        // 应用非极大值抑制
-        std::vector<int> indices;
-        cv::dnn::NMSBoxes(boxes, confidences, task.confidence_thresh, 0.4f, indices);
+      // 修正：正确计算最终置信度
+      float class_score = sigmoid(max_class_score);
+      float final_conf = objectness * class_score;
 
-        // 输出最终检测结果
-        for (int idx : indices) {
-            std::cout << "[YOLO] GOP: " << task.gopIdx
-                      << ", Frame: " << frame_idx
-                      << ", Confidence: " << confidences[idx]
-                      << ", Class: " << class_names[class_ids[idx]]
-                      << ", Box: (" << boxes[idx].x << "," << boxes[idx].y 
-                      << "," << boxes[idx].width << "," << boxes[idx].height << ")"
-                      << std::endl;
-        }
+      // 检查是否为目标物体且置信度足够
+      if (final_conf >= task.confidence_thresh && class_id >= 0 &&
+          class_id < static_cast<int>(class_names.size()) &&
+          class_names[class_id] == task.object_name) {
+        // 计算边界框（从归一化坐标转换为像素坐标）
+        float center_x = data[0] * input_size.width;
+        float center_y = data[1] * input_size.height;
+        float width = data[2] * input_size.width;
+        float height = data[3] * input_size.height;
+
+        float x = center_x - width / 2;
+        float y = center_y - height / 2;
+
+        boxes.push_back(cv::Rect(static_cast<int>(x), static_cast<int>(y),
+                                 static_cast<int>(width),
+                                 static_cast<int>(height)));
+        confidences.push_back(final_conf);
+        class_ids.push_back(class_id);
+      }
     }
+
+    // 应用非极大值抑制
+    std::vector<int> indices;
+    cv::dnn::NMSBoxes(boxes, confidences, task.confidence_thresh, 0.4f,
+                      indices);
+
+    // 输出最终检测结果
+    for (int idx : indices) {
+      std::cout << "[YOLO] GOP: " << task.gopIdx << ", Frame: " << frame_idx
+                << ", Confidence: " << confidences[idx]
+                << ", Class: " << class_names[class_ids[idx]] << ", Box: ("
+                << boxes[idx].x << "," << boxes[idx].y << ","
+                << boxes[idx].width << "," << boxes[idx].height << ")"
+                << std::endl;
+    }
+  }
 }
