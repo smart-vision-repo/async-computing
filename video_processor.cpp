@@ -116,7 +116,7 @@ int VideoProcessor::process() {
           std::vector<AVPacket *> decoding_pkts =
               get_packets_for_decoding(pkts, last_frame_in_gop);
           decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
-          clear_av_packets(&decoding_pkts);
+          // clear_av_packets(&decoding_pkts);
         } else {
           pool += frame_idx_in_gop;
         }
@@ -156,7 +156,7 @@ int VideoProcessor::process() {
   skipped_frames += pool;
   av_packet_free(&packet);
   avformat_close_input(&fmtCtx);
-  clear_av_packets(pkts);
+  // clear_av_packets(pkts);
   delete pkts;
 
   std::cout << "-------------------" << std::endl;
