@@ -1,6 +1,5 @@
 // packet_decoder.h
 #pragma once
-#include "yolo_inferencer.h"
 #include <atomic>
 #include <condition_variable>
 #include <functional>
@@ -42,7 +41,6 @@ private:
   AVFormatContext *fmtCtx;
   AVCodec *codec;
   AVCodecParameters *codecpar;
-  YoloInferencer inferencer;
 
   std::vector<std::thread> workers;
   std::queue<DecodeTask> taskQueue;
