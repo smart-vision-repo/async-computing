@@ -82,6 +82,8 @@ int VideoProcessor::process() {
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
   int success = 0;
+  float confidence = 0.6f;
+  std::string object_name = "dog";
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
     if (packet->stream_index == videoStream) {
@@ -108,9 +110,9 @@ int VideoProcessor::process() {
           if (!decoded_pks.empty()) {
             YoloInferencer::InferenceInput input;
             input.decoded_frames = decoded_pks;
-            input.object_name = "dog";      // 指定要检测的目标
-            input.confidence_thresh = 0.3f; // 指定置信度阈值
-            input.gopIdx = gop_idx;         // GOP 索引，需你自己维护
+            input.object_name = object_name;      // 指定要检测的目标
+            input.confidence_thresh = confidence; // 指定置信度阈值
+            input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
             inferencer.infer(input);
           }
           // std::cout << "decoded: " << decoded_frams.size() << std::endl;
@@ -145,9 +147,9 @@ int VideoProcessor::process() {
     if (!decoded_pks.empty()) {
       YoloInferencer::InferenceInput input;
       input.decoded_frames = decoded_pks;
-      input.object_name = "dog";      // 指定要检测的目标
-      input.confidence_thresh = 0.3f; // 指定置信度阈值
-      input.gopIdx = gop_idx;         // GOP 索引，需你自己维护
+      input.object_name = object_name;      // 指定要检测的目标
+      input.confidence_thresh = confidence; // 指定置信度阈值
+      input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
       inferencer.infer(input);
     }
     skipped_frames += pool;
