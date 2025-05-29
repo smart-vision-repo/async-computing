@@ -3,7 +3,6 @@
 #include <opencv2/core.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/highgui.hpp>
 #include <string>
 #include <vector>
 
@@ -20,7 +19,7 @@ public:
   ~YoloInferencer();
 
   void infer(const InferenceInput &input);
-  void waitForAllTasks(); // 占位，已无实际功能
+  void waitForAllTasks(); // 占位函数，当前为空实现
 
 private:
   struct InferenceTask {
