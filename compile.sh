@@ -36,7 +36,7 @@ check_gpp() {
 # Setup environment variables and compile
 compile() {
     local output_name="app_video_processor"
-    local src_files=(main.cpp video_processor.cpp packet_decoder.cpp)
+    local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp)
 
     log_info "Checking for pkg-config and dependencies..."
 
