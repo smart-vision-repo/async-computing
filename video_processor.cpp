@@ -28,15 +28,27 @@ extern "C" {
 }
 #include <opencv2/opencv.hpp>
 
-VideoProcessor::VideoProcessor(const std::string &video_file_name, int interval)
-    : decoder(const_cast<std::string &>(video_file_name)),
-      success_decoded_frames(0), video_file_name(video_file_name),
-      interval(interval), inferencer() {
-  // 其他初始化逻辑
-}
-
 VideoProcessor::~VideoProcessor() {
   // 清理逻辑（如有）
+}
+
+VideoProcessor::VideoProcessor(const std::string &video_file_name,
+                               const std::string &object_name, float confidence,
+                               int interval)
+    : decoder(const_cast<std::string &>(video_file_name)),
+      success_decoded_frames(0), video_file_name(video_file_name),
+      interval(interval), inferencer(), object_name(object_name),
+      confidence(confidence) {
+  if (video_file_name.empty() || object_name.empty() || confidence <= 0.0f ||
+      confidence >= 1.0f || interval <= 0) {
+    throw std::invalid_argument("Usage: VideoProcessor(video_file_name, "
+                                "object_name, confidence, interval)\n"
+                                "  - video_file_name: non-empty string\n"
+                                "  - object_name: non-empty string\n"
+                                "  - confidence: float between 0.0 and 1.0\n"
+                                "  - interval: positive integer");
+  }
+  // 其他初始化逻辑
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
@@ -44,9 +56,9 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   success_decoded_frames += frames.size();
   YoloInferencer::InferenceInput input;
   input.decoded_frames = frames;
-  input.object_name = "dog";      // 指定要检测的目标
-  input.confidence_thresh = 0.5f; // 指定置信度阈值
-  input.gopIdx = gopId;           // GOP 索引，需你自己维护
+  input.object_name = object_name;      // 指定要检测的目标
+  input.confidence_thresh = confidence; // 指定置信度阈值
+  input.gopIdx = gopId;                 // GOP 索引，需你自己维护
   inferencer.infer(input);
 }
 

@@ -12,7 +12,9 @@ extern "C" {
 // 声明 VideoProcessor 类
 class VideoProcessor {
 public:
-  VideoProcessor(const std::string &video_file_name, int interval);
+  VideoProcessor(const std::string &video_file_name,
+                 const std::string &object_name, float confidence,
+                 int interval);
   ~VideoProcessor();
   int process();
 
@@ -26,6 +28,8 @@ private:
   void clear_av_packets(std::vector<AVPacket *> *packages);
   PacketDecoder decoder;
   std::string video_file_name;
+  std::string object_name;
+  float confidence;
   int interval;
   int success_decoded_frames = 0;
   YoloInferencer inferencer;
