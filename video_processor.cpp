@@ -40,6 +40,7 @@ VideoProcessor::~VideoProcessor() {
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+  std::cout << gopId << "," << frames.size() << std::endl;
   success_decoded_frames += frames.size();
   YoloInferencer::InferenceInput input;
   input.decoded_frames = frames;
@@ -83,8 +84,6 @@ int VideoProcessor::process() {
     avformat_close_input(&fmtCtx);
     return -1;
   }
-
-  YoloInferencer inferencer;
 
   int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
