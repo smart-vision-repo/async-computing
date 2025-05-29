@@ -44,7 +44,6 @@ private:
   std::condition_variable cv_task;
   std::thread worker_thread;
   std::atomic<bool> running;
-  cv::Size input_size = cv::Size(640, 640);
 
   void loadClassNamesFromEnv();
   void loadModelFromEnv();
