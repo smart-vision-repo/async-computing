@@ -95,6 +95,8 @@ int VideoProcessor::process() {
   int success = 0;
   float confidence = 0.38f;
   std::string object_name = "dog";
+  // 收集所有 GOP 的 packet，统一存储
+  std::vector<std::vector<AVPacket *>> all_pkts;
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
     if (packet->stream_index == videoStream) {
@@ -112,11 +114,10 @@ int VideoProcessor::process() {
           decoded_frames += last_frame_in_gop;
           total_hits += hits;
           pool = frame_idx_in_gop - last_frame_in_gop;
-
           std::vector<AVPacket *> decoding_pkts =
               get_packets_for_decoding(pkts, last_frame_in_gop);
           decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
-          // clear_av_packets(&decoding_pkts);
+          all_pkts.push_back(std::move(decoding_pkts));
         } else {
           pool += frame_idx_in_gop;
         }
@@ -140,6 +141,7 @@ int VideoProcessor::process() {
     std::vector<AVPacket *> decoding_pkts =
         get_packets_for_decoding(pkts, last_frame_in_gop);
     decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
+    all_pkts.push_back(std::move(decoding_pkts));
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
     if (last_frame_in_gop > 0) {
@@ -153,10 +155,13 @@ int VideoProcessor::process() {
   }
 
   decoder.waitForAllTasks();
+  for (auto &pkts : all_pkts) {
+    clear_av_packets(&pkts);
+  }
   skipped_frames += pool;
   av_packet_free(&packet);
   avformat_close_input(&fmtCtx);
-  // clear_av_packets(pkts);
+  clear_av_packets(pkts);
   delete pkts;
 
   std::cout << "-------------------" << std::endl;
@@ -203,11 +208,12 @@ VideoProcessor::get_packets_for_decoding(std::vector<AVPacket *> *packages,
   return results;
 }
 
-void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *packages) {
-  if (!packages)
-    return;
-  for (AVPacket *pkt : *packages) {
-    av_packet_free(&pkt);
+void clear_av_packets(std::vector<AVPacket *> *pkts) {
+  for (AVPacket *pkt : *pkts) {
+    if (pkt) {
+      av_packet_unref(pkt);
+      av_packet_free(&pkt);
+    }
   }
-  packages->clear();
+  pkts->clear();
 }
