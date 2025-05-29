@@ -45,10 +45,10 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   success_decoded_frames += frames.size();
   YoloInferencer::InferenceInput input;
   input.decoded_frames = frames;
-  input.object_name = object_name;      // 指定要检测的目标
-  input.confidence_thresh = confidence; // 指定置信度阈值
-  input.gopIdx = gopId;                 // GOP 索引，需你自己维护
-  inferencer.infer(input);
+  input.object_name = object_name;
+  input.confidence_thresh = confidence;
+  input.gopIdx = gopId;
+  // inferencer.infer(input);
 }
 
 int VideoProcessor::process() {
@@ -157,7 +157,6 @@ int VideoProcessor::process() {
   } else {
     pool += frame_idx_in_gop;
   }
-
   decoder.waitForAllTasks();
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
