@@ -32,7 +32,8 @@ PacketDecoder::~PacketDecoder() {
 }
 
 bool PacketDecoder::initialize() {
-  if (avformat_open_input(&fmtCtx, video_file_name.c_str(), nullptr, nullptr) != 0) {
+  if (avformat_open_input(&fmtCtx, video_file_name.c_str(), nullptr, nullptr) !=
+      0) {
     std::cerr << "Failed to open video file: " << video_file_name << std::endl;
     return false;
   }
@@ -54,7 +55,8 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
                            int gopId, DecodeCallback callback) {
   std::vector<AVPacket *> copied_pkts;
   for (const auto *pkt : pkts) {
-    if (!pkt) continue;
+    if (!pkt)
+      continue;
     AVPacket *clone = av_packet_alloc();
     if (clone && av_packet_ref(clone, pkt) == 0) {
       copied_pkts.push_back(clone);
@@ -78,7 +80,8 @@ void PacketDecoder::workerLoop() {
     DecodeTask task;
     {
       std::unique_lock<std::mutex> lock(queueMutex);
-      queueCond.wait(lock, [this]() { return stopThreads || !taskQueue.empty(); });
+      queueCond.wait(lock,
+                     [this]() { return stopThreads || !taskQueue.empty(); });
       if (stopThreads && taskQueue.empty())
         break;
       task = std::move(taskQueue.front());
@@ -134,7 +137,8 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
       if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
         try {
-          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1, frame->data[0]);
+          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
+                      frame->data[0]);
           cv::Mat mat;
           cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
           decoded.push_back(std::move(mat));
@@ -156,7 +160,8 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
     if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
       try {
-        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1, frame->data[0]);
+        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
+                    frame->data[0]);
         cv::Mat mat;
         cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
         decoded.push_back(std::move(mat));
@@ -174,15 +179,17 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     filtered.push_back(std::move(decoded[i]));
   }
 
-  try {
-    task.callback(std::move(filtered), task.gopId);
-  } catch (const std::exception &e) {
-    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": " << e.what() << std::endl;
-  } catch (...) {
-    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId << std::endl;
-  }
+  // try {
+  //   task.callback(std::move(filtered), task.gopId);
+  // } catch (const std::exception &e) {
+  //   std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
+  //   << e.what() << std::endl;
+  // } catch (...) {
+  //   std::cerr << "[Error] Unknown exception in callback for GOP " <<
+  //   task.gopId << std::endl;
+  // }
 
-  for (AVPacket* pkt : task.pkts) {
+  for (AVPacket *pkt : task.pkts) {
     if (pkt) {
       av_packet_unref(pkt);
       av_packet_free(&pkt);
@@ -202,7 +209,8 @@ void PacketDecoder::reset() {}
 
 void PacketDecoder::waitForAllTasks() {
   std::unique_lock<std::mutex> lock(queueMutex);
-  doneCond.wait(lock, [this]() { return taskQueue.empty() && activeTasks == 0; });
+  doneCond.wait(lock,
+                [this]() { return taskQueue.empty() && activeTasks == 0; });
 
   stopThreads = true;
   queueCond.notify_all();
