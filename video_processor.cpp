@@ -104,10 +104,11 @@ int VideoProcessor::process() {
           // decoder.reset();
           decoder.decode(decoding_pkts, interval);
           std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
-          int decoded_frame_size = decoded_frames.size();
-          success += decoded_frame_size;
-          if (decoded_frame_size > 0) {
-            yolo_inferencer.infer(decoded_frames, "dog", 0.6f);
+          std::vector<cv::Mat> decoded_frams = decoder.getDecodedFrames();
+          success += decoded_frams.size();
+          if (!decoded_frams.empty()) {
+            yolo_inferencer.infer(decoded_frams, "dog",
+                                  0.5f); // 仅在有有效帧时推理
           }
           // std::cout << "decoded: " << decoded_frams.size() << std::endl;
           total_packages += decoding_pkts.size();
