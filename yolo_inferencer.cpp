@@ -58,17 +58,14 @@ void YoloInferencer::loadModelFromEnv() {
     net.setPreferableTarget(DNN_TARGET_CUDA);
     std::cout << "[INFO] Using CUDA backend for inference." << std::endl;
   } catch (...) {
-    std::cerr << "[WARN] CUDA backend unavailable, falling back to CPU."
-              << std::endl;
+    std::cerr << "[WARN] CUDA backend unavailable, falling back to CPU." << std::endl;
     net.setPreferableBackend(DNN_BACKEND_OPENCV);
     net.setPreferableTarget(DNN_TARGET_CPU);
   }
 }
 
-cv::Mat YoloInferencer::letterbox(const cv::Mat &src,
-                                  const cv::Size &target_size, int stride,
-                                  cv::Scalar color, float *scale_out,
-                                  cv::Point *padding_out) {
+cv::Mat YoloInferencer::letterbox(const cv::Mat &src, const cv::Size &target_size, int stride,
+                                  cv::Scalar color, float *scale_out, cv::Point *padding_out) {
   int src_w = src.cols;
   int src_h = src.rows;
   float scale = std::min((float)target_size.width / src_w,
@@ -139,5 +136,7 @@ void YoloInferencer::processLoop() {
 
 void YoloInferencer::waitForAllTasks() {
   std::unique_lock<std::mutex> lock(queue_mutex);
-  done_cv.wait(lock, [&]() { return active_tasks == 0 && task_queue.empty(); });
+  done_cv.wait(lock, [&]() {
+    return active_tasks == 0 && task_queue.empty();
+  });
 }
