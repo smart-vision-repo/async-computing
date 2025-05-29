@@ -39,8 +39,15 @@ private:
     int gopIdx;
   };
 
+  std::queue<InferenceTask> task_queue;
+  std::mutex queue_mutex;
+  std::condition_variable cv_task;
+  std::thread worker_thread;
+  std::atomic<bool> running;
+
   void loadClassNamesFromEnv();
   void loadModelFromEnv();
+  void processLoop();
   void doInference(const InferenceTask &task);
 
   cv::Mat letterbox(const cv::Mat &src, const cv::Size &target_size,
