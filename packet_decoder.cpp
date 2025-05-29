@@ -119,7 +119,7 @@ AVCodecContext *PacketDecoder::cloneDecoderContext() {
 }
 
 void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
-  std::cout << "[Decode] GOP " << task.gopId << " started\n";
+  // std::cout << "[Decode] GOP " << task.gopId << " started\n";
 
   std::vector<cv::Mat> decoded;
   AVFrame *frame = av_frame_alloc();
@@ -132,7 +132,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     }
 
     pkt->stream_index = vidIdx;
-    std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
+    // std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
 
     if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
