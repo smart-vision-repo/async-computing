@@ -1,30 +1,26 @@
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
-#include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/opencv.hpp>
-#include <queue>
+#include <opencv2/highgui.hpp>
 #include <string>
-#include <thread>
 #include <vector>
+
+struct InferenceInput {
+  std::vector<cv::Mat> decoded_frames;
+  std::string object_name;
+  float confidence_thresh;
+  int gopIdx;
+};
 
 class YoloInferencer {
 public:
-  struct InferenceInput {
-    std::vector<cv::Mat> decoded_frames;
-    std::string object_name;
-    float confidence_thresh;
-    int gopIdx;
-  };
-
   YoloInferencer();
   ~YoloInferencer();
 
   void infer(const InferenceInput &input);
+  void waitForAllTasks(); // 占位，已无实际功能
 
 private:
   struct InferenceTask {
@@ -36,12 +32,10 @@ private:
 
   void loadClassNamesFromEnv();
   void loadModelFromEnv();
-  void processLoop();
+  void doInference(const InferenceTask &task);
 
   cv::dnn::Net net;
-  bool initialized = false;
-  bool running = false;
-  cv::Size input_size = cv::Size(640, 640);
   std::vector<std::string> class_names;
   int num_classes = 0;
+  bool initialized = false;
 };
