@@ -82,7 +82,7 @@ int VideoProcessor::process() {
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
   int success = 0;
-  float confidence = 0.6f;
+  float confidence = 0.38f;
   std::string object_name = "dog";
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
