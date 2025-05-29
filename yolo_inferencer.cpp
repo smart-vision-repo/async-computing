@@ -108,18 +108,32 @@ cv::Mat YoloInferencer::letterbox(const cv::Mat &src,
   return output;
 }
 
-void YoloInferencer::infer(const InferenceInput &input) {
+int YoloInferencer::infer1(const InferenceInput &input) {
   if (!initialized)
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
-  doInference(task);
+  return 0;
   // {
   //   std::lock_guard<std::mutex> lock(queue_mutex);
   //   task_queue.push(std::move(task));
   //   ++active_tasks;
   // }
   // cv_task.notify_one();
+}
+
+void YoloInferencer::infer(const InferenceInput &input) {
+  if (!initialized)
+    return;
+  InferenceTask task{input.decoded_frames, input.object_name,
+                     input.confidence_thresh, input.gopIdx};
+  doInference(task);
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex);
+    task_queue.push(std::move(task));
+    ++active_tasks;
+  }
+  cv_task.notify_one();
 }
 
 void YoloInferencer::processLoop() {

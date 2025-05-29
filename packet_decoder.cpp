@@ -212,8 +212,11 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     input.decoded_frames = filtered;
     input.gopIdx = task.gopId;
     input.object_name = "dog";
-    inferencer->infer(input);
     task.callback(std::move(filtered), task.gopId);
+    int ret = inferencer->infer1(input);
+    if (ret == 0) {
+      std::cout << "infer success" << std::endl;
+    }
   } catch (const std::exception &e) {
     std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
               << e.what() << std::endl;

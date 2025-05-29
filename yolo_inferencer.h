@@ -25,7 +25,8 @@ public:
   ~YoloInferencer();
 
   void infer(const InferenceInput &input);
-  void waitForAllTasks();  // 等待所有任务完成
+  int infer1(const InferenceInput &input);
+  void waitForAllTasks(); // 等待所有任务完成
 
 private:
   struct InferenceTask {
