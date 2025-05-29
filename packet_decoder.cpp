@@ -75,6 +75,12 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
   queueCond.notify_one();
 }
 
+void PacketDecoder::waitForAllTasks() {
+  std::unique_lock<std::mutex> lock(queueMutex);
+  doneCond.wait(lock,
+                [this]() { return activeTasks == 0 && taskQueue.empty(); });
+}
+
 void PacketDecoder::workerLoop() {
   AVCodecContext *localCtx = cloneDecoderContext();
   if (!localCtx)
@@ -198,16 +204,15 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     filtered.push_back(std::move(decoded[i]));
   }
 
-  // try {
-  //   task.callback(std::move(filtered), task.gopId);
-  // } catch (const std::exception &e) {
-  //   std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
-  //             << e.what() << std::endl;
-  // } catch (...) {
-  //   std::cerr << "[Error] Unknown exception in callback for GOP " <<
-  //   task.gopId
-  //             << std::endl;
-  // }
+  try {
+    task.callback(std::move(filtered), task.gopId);
+  } catch (const std::exception &e) {
+    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
+              << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId
+              << std::endl;
+  }
 
   for (AVPacket *pkt : task.pkts) {
     if (pkt) {
