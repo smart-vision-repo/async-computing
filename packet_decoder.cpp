@@ -112,6 +112,12 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   avcodec_flush_buffers(ctx);
 
   for (AVPacket *pkt : task.pkts) {
+
+    if (!pkt || pkt->size == 0 || !pkt->data) {
+      std::cerr << "[Warn] Empty packet in GOP " << task.gopId << "\n";
+      continue;
+    }
+
     pkt->stream_index = vidIdx;
     if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
