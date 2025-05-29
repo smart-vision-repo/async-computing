@@ -20,11 +20,12 @@ public:
     float confidence_thresh;
     int gopIdx;
   };
+
   YoloInferencer();
   ~YoloInferencer();
 
   void infer(const InferenceInput &input);
-  void waitForAllTasks(); // ✅ 新增等待任务完成方法
+  void waitForAllTasks();  // 等待所有任务完成
 
 private:
   struct InferenceTask {
@@ -49,14 +50,11 @@ private:
   std::queue<InferenceTask> task_queue;
   std::mutex queue_mutex;
   std::condition_variable cv_task;
-
-  std::thread worker_thread;
-
-  // ✅ 新增用于任务同步
-  std::atomic<int> active_tasks = 0;
   std::condition_variable done_cv;
 
-  // 工具函数
+  std::thread worker_thread;
+  std::atomic<int> active_tasks = 0;
+
   cv::Mat letterbox(const cv::Mat &src, const cv::Size &target_size, int stride,
                     cv::Scalar color, float *scale_out = nullptr,
                     cv::Point *padding_out = nullptr);
