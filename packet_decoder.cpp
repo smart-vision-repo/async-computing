@@ -198,15 +198,16 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     filtered.push_back(std::move(decoded[i]));
   }
 
-  try {
-    task.callback(std::move(filtered), task.gopId);
-  } catch (const std::exception &e) {
-    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
-              << e.what() << std::endl;
-  } catch (...) {
-    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId
-              << std::endl;
-  }
+  // try {
+  //   task.callback(std::move(filtered), task.gopId);
+  // } catch (const std::exception &e) {
+  //   std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
+  //             << e.what() << std::endl;
+  // } catch (...) {
+  //   std::cerr << "[Error] Unknown exception in callback for GOP " <<
+  //   task.gopId
+  //             << std::endl;
+  // }
 
   for (AVPacket *pkt : task.pkts) {
     if (pkt) {
