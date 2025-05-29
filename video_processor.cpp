@@ -177,6 +177,7 @@ int VideoProcessor::process() {
   avformat_close_input(&fmtCtx);
   clear_av_packets(pkts);
   delete pkts;
+  decoder.waitForAllTasks();
 
   std::cout << "-------------------" << std::endl;
   float percentage =

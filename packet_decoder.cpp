@@ -160,3 +160,24 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 void PacketDecoder::reset() {
   // 这里可扩展：发信号给线程调用 avcodec_flush_buffers
 }
+
+void PacketDecoder::waitForAllTasks() {
+  while (true) {
+    {
+      std::lock_guard<std::mutex> lock(queueMutex);
+      if (taskQueue.empty())
+        break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  // 等任务消费完，让线程退出
+  {
+    std::lock_guard<std::mutex> lock(queueMutex);
+    stopThreads = true;
+  }
+  queueCond.notify_all();
+  for (auto &t : workers) {
+    if (t.joinable())
+      t.join();
+  }
+}
