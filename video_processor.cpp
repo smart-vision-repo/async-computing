@@ -107,7 +107,7 @@ int VideoProcessor::process() {
           success += decoded_frams.size();
           if (!decoded_frams.empty()) {
             yolo_inferencer.infer(decoded_frams, "dog",
-                                  0.5f); // 仅在有有效帧时推理
+                                  0.1f); // 仅在有有效帧时推理
           }
           // std::cout << "decoded: " << decoded_frams.size() << std::endl;
           total_packages += decoding_pkts.size();
