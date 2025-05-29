@@ -61,9 +61,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
         YoloInferencer::InferenceInput input = std::move(infer_inputs.front());
         infer_inputs.pop();
         lock.unlock();
-
-        inferencer.infer(input);
-
+        inferencer.infer1(input);
         lock.lock();
       }
     }
