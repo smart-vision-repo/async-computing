@@ -1,227 +1,254 @@
-#include "yolo_inferencer.h"
-#include <cmath>
-#include <cstdlib>
-#include <fstream>
+// video_processor.cpp
+
+#include "video_processor.h"
+#include "yolo_inferencer.h" // 确保包含推理器声明
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <filesystem>
+#include <iomanip>
 #include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <numeric>
+#include <queue>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <vector>
 
-using namespace cv;
-using namespace cv::dnn;
-using namespace std;
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
+#include <libavutil/error.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+}
+#include <opencv2/opencv.hpp>
 
-YoloInferencer::YoloInferencer() {
-  try {
-    loadClassNamesFromEnv();
-    loadModelFromEnv();
-    initialized = true;
-  } catch (const std::exception &e) {
-    std::cerr << "YoloInferencer init failed: " << e.what() << std::endl;
-    initialized = false;
+VideoProcessor::~VideoProcessor() {
+  stop_infer_thread = true;
+  infer_cv.notify_all();
+  if (infer_thread.joinable()) {
+    infer_thread.join();
   }
 }
 
-YoloInferencer::~YoloInferencer() {}
+VideoProcessor::VideoProcessor(const std::string &video_file_name,
+                               const std::string &object_name, float confidence,
+                               int interval)
+    : decoder(const_cast<std::string &>(video_file_name)),
+      video_file_name(video_file_name), object_name(object_name),
+      confidence(confidence), interval(interval), success_decoded_frames(0),
+      stop_infer_thread(false) {
 
-void YoloInferencer::loadClassNamesFromEnv() {
-  const char *names_path = std::getenv("YOLO_COCO_NAMES");
-  if (!names_path)
-    throw std::runtime_error("YOLO_COCO_NAMES not set");
+  // 启动独立推理线程
+  infer_thread = std::thread([this]() {
+    while (!stop_infer_thread) {
+      std::unique_lock<std::mutex> lock(infer_mutex);
+      infer_cv.wait(lock, [this]() {
+        return !infer_inputs.empty() || stop_infer_thread;
+      });
 
-  std::ifstream ifs(names_path);
-  if (!ifs.is_open())
-    throw std::runtime_error("Cannot open coco.names file");
+      while (!infer_inputs.empty()) {
+        YoloInferencer::InferenceInput input = std::move(infer_inputs.front());
+        infer_inputs.pop();
+        lock.unlock();
+        inferencer.infer(input);
+        lock.lock();
+      }
+    }
+  });
+}
 
-  std::string line;
-  while (std::getline(ifs, line)) {
-    class_names.push_back(line);
+void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+  std::cout << gopId << "," << frames.size() << std::endl;
+  YoloInferencer::InferenceInput input;
+  input.decoded_frames = std::move(frames);
+  input.object_name = object_name;
+  input.confidence_thresh = confidence;
+  input.gopIdx = gopId;
+
+  {
+    std::lock_guard<std::mutex> lock(infer_mutex);
+    infer_inputs.push(std::move(input));
+  }
+  infer_cv.notify_one();
+}
+
+int VideoProcessor::process() {
+  const char *video_file_path = video_file_name.c_str();
+  AVFormatContext *fmtCtx = nullptr;
+  if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
+    std::cerr << "Could not open video file: " << video_file_path << std::endl;
+    return -1;
   }
 
-  num_classes = static_cast<int>(class_names.size());
-}
-
-void YoloInferencer::loadModelFromEnv() {
-  const char *model_path = std::getenv("YOLO_MODEL_NAME");
-  if (!model_path)
-    throw std::runtime_error("YOLO_MODEL_NAME not set");
-
-  net = readNetFromONNX(model_path);
-
-  try {
-    net.setPreferableBackend(DNN_BACKEND_CUDA);
-    net.setPreferableTarget(DNN_TARGET_CUDA);
-    std::cout << "[INFO] Using CUDA backend for inference." << std::endl;
-  } catch (...) {
-    std::cerr << "[WARN] CUDA backend unavailable, falling back to CPU."
-              << std::endl;
-    net.setPreferableBackend(DNN_BACKEND_OPENCV);
-    net.setPreferableTarget(DNN_TARGET_CPU);
+  if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
+    std::cerr << "Could not get stream info" << std::endl;
+    avformat_close_input(&fmtCtx);
+    return -1;
   }
+
+  int videoStream = -1;
+  for (unsigned int i = 0; i < fmtCtx->nb_streams; i++) {
+    if (fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+      videoStream = i;
+      break;
+    }
+  }
+
+  if (videoStream == -1) {
+    std::cerr << "No video stream found" << std::endl;
+    avformat_close_input(&fmtCtx);
+    return -1;
+  }
+
+  AVPacket *packet = av_packet_alloc();
+  if (!packet) {
+    std::cerr << "Could not allocate AVPacket" << std::endl;
+    avformat_close_input(&fmtCtx);
+    return -1;
+  }
+
+  int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
+  int hits = 0, pool = 0;
+  int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
+      total_packages = 0;
+  std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
+  std::vector<std::vector<AVPacket *>> all_pkts;
+
+  while (av_read_frame(fmtCtx, packet) >= 0) {
+    if (packet->stream_index == videoStream) {
+      frame_idx++;
+      if (frame_idx > 1 && (frame_idx - 1) % interval == 0) {
+        hits++;
+      }
+      bool is_key_frame = (packet->flags & AV_PKT_FLAG_KEY);
+      if (is_key_frame) {
+        int last_frame_in_gop = 0;
+        if (hits > 0) {
+          skipped_frames += pool;
+          last_frame_in_gop = hits * interval - pool;
+          decoded_frames += last_frame_in_gop;
+          total_hits += hits;
+          pool = frame_idx_in_gop - last_frame_in_gop;
+          std::vector<AVPacket *> decoding_pkts =
+              get_packets_for_decoding(pkts, last_frame_in_gop);
+          decoder.decode(decoding_pkts, interval, gop_idx,
+                         [this](std::vector<cv::Mat> frames, int gopId) {
+                           this->onDecoded(std::move(frames), gopId);
+                         });
+          all_pkts.push_back(std::move(decoding_pkts));
+        } else {
+          pool += frame_idx_in_gop;
+        }
+        frame_idx_in_gop = 0;
+        hits = 0;
+        gop_idx++;
+        clear_av_packets(pkts);
+        add_av_packet_to_list(&pkts, packet);
+      } else {
+        if (pkts->size() > 0) {
+          add_av_packet_to_list(&pkts, packet);
+        }
+      }
+      frame_idx_in_gop++;
+      av_packet_unref(packet);
+    }
+  }
+
+  int last_frame_in_gop = 0;
+  if (hits > 0) {
+    std::vector<AVPacket *> decoding_pkts =
+        get_packets_for_decoding(pkts, last_frame_in_gop);
+    decoder.decode(decoding_pkts, interval, gop_idx,
+                   [this](std::vector<cv::Mat> frames, int gopId) {
+                     this->onDecoded(std::move(frames), gopId);
+                   });
+    all_pkts.push_back(std::move(decoding_pkts));
+    skipped_frames += pool;
+    last_frame_in_gop = hits * interval - pool;
+    if (last_frame_in_gop > 0) {
+      decoded_frames += last_frame_in_gop;
+      total_packages += last_frame_in_gop;
+    }
+    total_hits += hits;
+    pool = frame_idx_in_gop - last_frame_in_gop;
+  } else {
+    pool += frame_idx_in_gop;
+  }
+
+  decoder.waitForAllTasks();
+
+  for (auto &pkts : all_pkts) {
+    clear_av_packets(&pkts);
+  }
+
+  skipped_frames += pool;
+  av_packet_free(&packet);
+  avformat_close_input(&fmtCtx);
+  clear_av_packets(pkts);
+  delete pkts;
+
+  std::cout << "-------------------" << std::endl;
+  float percentage =
+      (frame_idx > 0) ? (decoded_frames * 100.0f / frame_idx) : 0.0f;
+  std::cout << "total gop: " << gop_idx << std::endl
+            << "interval: " << interval << std::endl
+            << "total_packages: " << total_packages << std::endl
+            << "decoded frames: " << decoded_frames << std::endl
+            << "skipped frames: " << skipped_frames << std::endl
+            << "discrepancies: " << frame_idx - decoded_frames - skipped_frames
+            << std::endl
+            << "percentage: " << percentage << "%" << std::endl
+            << "successfully decoded: " << success_decoded_frames << std::endl
+            << "extracted frames: " << total_hits << std::endl;
+
+  return 0;
 }
 
-static cv::Mat letterbox(const cv::Mat &src, cv::Size &out_size, int stride,
-                         float *scale_out, cv::Point *pad_out) {
-  int width = src.cols;
-  int height = src.rows;
-  float scale = 1.0f;
-
-  // 计算使宽高都能被stride整除的最小尺寸
-  int new_w = (width + stride - 1) / stride * stride;
-  int new_h = (height + stride - 1) / stride * stride;
-
-  scale = std::min((float)new_w / width, (float)new_h / height);
-  int resized_w = int(width * scale);
-  int resized_h = int(height * scale);
-
-  int dw = new_w - resized_w;
-  int dh = new_h - resized_h;
-  int top = dh / 2;
-  int bottom = dh - top;
-  int left = dw / 2;
-  int right = dw - left;
-
-  cv::Mat resized;
-  resize(src, resized, Size(resized_w, resized_h));
-
-  cv::Mat padded;
-  copyMakeBorder(resized, padded, top, bottom, left, right, BORDER_CONSTANT,
-                 Scalar(114, 114, 114));
-
-  if (scale_out)
-    *scale_out = scale;
-  if (pad_out)
-    *pad_out = Point(left, top);
-  out_size = padded.size();
-
-  return padded;
-}
-
-void YoloInferencer::infer(const InferenceInput &input) {
-  if (!initialized)
+void VideoProcessor::add_av_packet_to_list(std::vector<AVPacket *> **packages,
+                                           const AVPacket *packet) {
+  if (!packet)
     return;
-  InferenceTask task{input.decoded_frames, input.object_name,
-                     input.confidence_thresh, input.gopIdx};
-  doInference(task);
-}
-
-void YoloInferencer::doInference(const YoloInferencer::InferenceTask &task) {
-  auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
-
-  for (size_t frame_idx = 0; frame_idx < task.frames.size(); ++frame_idx) {
-    const Mat &frame = task.frames[frame_idx];
-
-    float scale;
-    Point pad;
-    Size input_size;
-    Mat padded = letterbox(frame, input_size, 32, &scale, &pad);
-
-    Mat blob;
-    blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
-    net.setInput(blob);
-
-    Mat output = net.forward();
-
-    const int num_preds = output.size[2];
-    const int num_attrs = output.size[1];
-
-    std::vector<cv::Rect> boxes;
-    std::vector<float> confidences;
-    std::vector<int> class_ids;
-
-    for (int i = 0; i < num_preds; ++i) {
-      float *data = output.ptr<float>(0, 0) + i * num_attrs;
-
-      float objectness = sigmoid(data[4]);
-
-      float max_class_score = -1e9;
-      int class_id = -1;
-      for (int c = 0; c < num_classes; ++c) {
-        float cls_score = data[5 + c];
-        if (cls_score > max_class_score) {
-          max_class_score = cls_score;
-          class_id = c;
-        }
-      }
-
-      float class_score = sigmoid(max_class_score);
-      float final_conf = objectness * class_score;
-
-      if (final_conf >= task.confidence_thresh && class_id >= 0 &&
-          class_id < static_cast<int>(class_names.size()) &&
-          class_names[class_id] == task.object_name) {
-
-        float center_x = data[0] * input_size.width;
-        float center_y = data[1] * input_size.height;
-        float width = data[2] * input_size.width;
-        float height = data[3] * input_size.height;
-
-        float x = center_x - width / 2;
-        float y = center_y - height / 2;
-
-        // 将坐标映射回原图
-        x = (x - pad.x) / scale;
-        y = (y - pad.y) / scale;
-        width /= scale;
-        height /= scale;
-
-        x = std::max(0.f, std::min(x, (float)frame.cols - 1));
-        y = std::max(0.f, std::min(y, (float)frame.rows - 1));
-        width = std::min(width, (float)frame.cols - x);
-        height = std::min(height, (float)frame.rows - y);
-
-        boxes.emplace_back(static_cast<int>(x), static_cast<int>(y),
-                           static_cast<int>(width), static_cast<int>(height));
-        confidences.push_back(final_conf);
-        class_ids.push_back(class_id);
-      }
-    }
-
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, task.confidence_thresh, 0.4f,
-                      indices);
-
-    if (!indices.empty()) {
-      const char *save_path = std::getenv("YOLO_IMAGE_PATH");
-      if (save_path) {
-        Mat result_img = frame.clone();
-        for (int idx : indices) {
-          cv::Rect box = boxes[idx];
-          cv::rectangle(result_img, box, cv::Scalar(0, 255, 0), 2);
-
-          std::string label =
-              class_names[class_ids[idx]] + ": " +
-              std::to_string(static_cast<int>(confidences[idx] * 100)) + "%";
-
-          int baseline = 0;
-          cv::Size text_size = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                               0.5, 1, &baseline);
-
-          cv::rectangle(result_img,
-                        cv::Point(box.x, box.y - text_size.height - 5),
-                        cv::Point(box.x + text_size.width, box.y),
-                        cv::Scalar(0, 255, 0), -1);
-
-          cv::putText(result_img, label, cv::Point(box.x, box.y - 5),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
-        }
-
-        std::string save_filename = std::string(save_path) + "/detection_gop" +
-                                    std::to_string(task.gopIdx) + "_frame_" +
-                                    std::to_string(frame_idx) + ".jpg";
-
-        cv::imwrite(save_filename, result_img);
-      }
-    }
-
-    for (int idx : indices) {
-      std::cout << "[YOLO] GOP: " << task.gopIdx << ", Frame: " << frame_idx
-                << ", Confidence: " << confidences[idx]
-                << ", Class: " << class_names[class_ids[idx]] << ", Box: ("
-                << boxes[idx].x << "," << boxes[idx].y << ","
-                << boxes[idx].width << "," << boxes[idx].height << ")"
-                << std::endl;
-    }
+  if (!*packages) {
+    *packages = new std::vector<AVPacket *>();
+  }
+  AVPacket *cloned = av_packet_clone(packet);
+  if (cloned) {
+    (*packages)->push_back(cloned);
   }
 }
 
-void YoloInferencer::waitForAllTasks() {
-  // No longer needed
+std::vector<AVPacket *>
+VideoProcessor::get_packets_for_decoding(std::vector<AVPacket *> *packages,
+                                         int last_frame_index) {
+  std::vector<AVPacket *> results;
+  if (!packages)
+    return results;
+  for (int i = 0; i < last_frame_index && i < packages->size(); i++) {
+    AVPacket *pkt = av_packet_clone((*packages)[i]);
+    if (pkt) {
+      results.push_back(pkt);
+    }
+  }
+  return results;
+}
+
+void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *pkts) {
+  for (AVPacket *pkt : *pkts) {
+    if (pkt) {
+      av_packet_unref(pkt);
+      av_packet_free(&pkt);
+    }
+  }
+  pkts->clear();
 }

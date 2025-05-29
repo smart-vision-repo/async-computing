@@ -57,19 +57,64 @@ void YoloInferencer::loadModelFromEnv() {
   }
 }
 
+static cv::Mat letterbox(const cv::Mat &src, cv::Size &out_size, int stride,
+                         float *scale_out, cv::Point *pad_out) {
+  int width = src.cols;
+  int height = src.rows;
+  float scale = 1.0f;
+
+  // 计算使宽高都能被stride整除的最小尺寸
+  int new_w = (width + stride - 1) / stride * stride;
+  int new_h = (height + stride - 1) / stride * stride;
+
+  scale = std::min((float)new_w / width, (float)new_h / height);
+  int resized_w = int(width * scale);
+  int resized_h = int(height * scale);
+
+  int dw = new_w - resized_w;
+  int dh = new_h - resized_h;
+  int top = dh / 2;
+  int bottom = dh - top;
+  int left = dw / 2;
+  int right = dw - left;
+
+  cv::Mat resized;
+  resize(src, resized, Size(resized_w, resized_h));
+
+  cv::Mat padded;
+  copyMakeBorder(resized, padded, top, bottom, left, right, BORDER_CONSTANT,
+                 Scalar(114, 114, 114));
+
+  if (scale_out)
+    *scale_out = scale;
+  if (pad_out)
+    *pad_out = Point(left, top);
+  out_size = padded.size();
+
+  return padded;
+}
+
 void YoloInferencer::infer(const InferenceInput &input) {
   if (!initialized)
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
+  doInference(task);
+}
+
+void YoloInferencer::doInference(const YoloInferencer::InferenceTask &task) {
   auto sigmoid = [](float x) { return 1.f / (1.f + std::exp(-x)); };
 
   for (size_t frame_idx = 0; frame_idx < task.frames.size(); ++frame_idx) {
     const Mat &frame = task.frames[frame_idx];
 
+    float scale;
+    Point pad;
+    Size input_size;
+    Mat padded = letterbox(frame, input_size, 32, &scale, &pad);
+
     Mat blob;
-    blobFromImage(frame, blob, 1.0 / 255.0, frame.size(), Scalar(), true,
-                  false);
+    blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
     net.setInput(blob);
 
     Mat output = net.forward();
@@ -103,13 +148,24 @@ void YoloInferencer::infer(const InferenceInput &input) {
           class_id < static_cast<int>(class_names.size()) &&
           class_names[class_id] == task.object_name) {
 
-        float center_x = data[0] * frame.cols;
-        float center_y = data[1] * frame.rows;
-        float width = data[2] * frame.cols;
-        float height = data[3] * frame.rows;
+        float center_x = data[0] * input_size.width;
+        float center_y = data[1] * input_size.height;
+        float width = data[2] * input_size.width;
+        float height = data[3] * input_size.height;
 
         float x = center_x - width / 2;
         float y = center_y - height / 2;
+
+        // 将坐标映射回原图
+        x = (x - pad.x) / scale;
+        y = (y - pad.y) / scale;
+        width /= scale;
+        height /= scale;
+
+        x = std::max(0.f, std::min(x, (float)frame.cols - 1));
+        y = std::max(0.f, std::min(y, (float)frame.rows - 1));
+        width = std::min(width, (float)frame.cols - x);
+        height = std::min(height, (float)frame.rows - y);
 
         boxes.emplace_back(static_cast<int>(x), static_cast<int>(y),
                            static_cast<int>(width), static_cast<int>(height));
@@ -164,4 +220,8 @@ void YoloInferencer::infer(const InferenceInput &input) {
                 << std::endl;
     }
   }
+}
+
+void YoloInferencer::waitForAllTasks() {
+  // No longer needed
 }
