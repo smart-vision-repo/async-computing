@@ -1,59 +1,46 @@
-// packet_decoder.h
-#pragma once
+#ifndef PACKET_DECODER_H
+#define PACKET_DECODER_H
 
-#include <atomic>
-#include <condition_variable>
-#include <functional>
-#include <mutex>
-#include <opencv2/opencv.hpp>
-#include <queue>
-#include <thread>
 #include <vector>
+#include <opencv2/core.hpp>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/avutil.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/opt.h>
+#include <libavutil/hwcontext.h>
+#include <libavutil/error.h>
 #include <libswscale/swscale.h>
 }
-
 class PacketDecoder {
 public:
-  using DecodeCallback =
-      std::function<void(std::vector<cv::Mat> &&, int gopId)>;
+    PacketDecoder(std::string video_file_name);
+    ~PacketDecoder();
 
-  PacketDecoder(std::string video_file_name);
-  ~PacketDecoder();
-
-  void decode(const std::vector<AVPacket *> &pkts, int interval, int gopId,
-              DecodeCallback callback);
-  void waitForAllTasks(); // 等待所有任务完成并关闭线程池
-  void reset();
+    void decode(const std::vector<AVPacket *> &pkts, int interval);
+    std::vector<cv::Mat> getDecodedFrames() const;
+    void reset(); // 软重置解码器
 
 private:
-  struct DecodeTask {
-    std::vector<AVPacket *> pkts;
-    int interval;
-    int gopId;
-    DecodeCallback callback;
-  };
+    int vidIdx;
+    const std::string video_file_name;
+    bool useHW;
+    AVCodecParserContext *parser;
+    AVCodecContext *ctx;
+    const AVCodec *codec;
 
-  std::string video_file_name;
-  int vidIdx;
-  AVFormatContext *fmtCtx;
-  AVCodec *codec;
-  AVCodecParameters *codecpar;
-
-  std::vector<std::thread> workers;
-  std::queue<DecodeTask> taskQueue;
-  std::mutex queueMutex;
-  std::condition_variable queueCond;
-  std::condition_variable doneCond;
-  bool stopThreads;
-  std::atomic<int> activeTasks;
-
-  void workerLoop();
-  AVCodecContext *cloneDecoderContext();
-  void decodeTask(DecodeTask task, AVCodecContext *ctx);
-
-  bool initialize();
+    AVFormatContext *fmtCtx;
+    AVBufferRef *hwCtxRef;
+    AVBufferRef *hw_device_ctx;
+    SwsContext *swsCtx;
+    std::vector<cv::Mat> decoded_frames;
+    bool initialize();
+    int initHWDecoder(AVCodecContext *codecContext, AVBufferRef **hwDeviceCtx);
+    cv::Mat avFrameToMat(AVFrame *frame);
+    AVFrame *convertToRGB(AVFrame *frame);
+    void resetDecoder();
 };
+
+#endif // PACKET_DECODER_H

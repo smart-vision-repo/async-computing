@@ -39,17 +39,6 @@ VideoProcessor::~VideoProcessor() {
   // 清理逻辑（如有）
 }
 
-static void onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
-            << std::endl;
-  //   YoloInferencer::InferenceInput input;
-  //   input.decoded_frames = decoded_pks;
-  //   input.object_name = object_name;      // 指定要检测的目标
-  //   input.confidence_thresh = confidence; // 指定置信度阈值
-  //   input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
-  //   inferencer.infer(input);
-}
-
 int VideoProcessor::process() {
   const char *video_file_path = video_file_name.c_str();
   AVFormatContext *fmtCtx = nullptr;
@@ -95,8 +84,6 @@ int VideoProcessor::process() {
   int success = 0;
   float confidence = 0.38f;
   std::string object_name = "dog";
-  // 收集所有 GOP 的 packet，统一存储
-  std::vector<std::vector<AVPacket *>> all_pkts;
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
     if (packet->stream_index == videoStream) {
@@ -116,8 +103,21 @@ int VideoProcessor::process() {
           pool = frame_idx_in_gop - last_frame_in_gop;
           std::vector<AVPacket *> decoding_pkts =
               get_packets_for_decoding(pkts, last_frame_in_gop);
-          decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
-          all_pkts.push_back(std::move(decoding_pkts));
+          // decoder.reset();
+          decoder.decode(decoding_pkts, interval);
+          std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+          success += decoded_pks.size();
+          if (!decoded_pks.empty()) {
+            YoloInferencer::InferenceInput input;
+            input.decoded_frames = decoded_pks;
+            input.object_name = object_name;      // 指定要检测的目标
+            input.confidence_thresh = confidence; // 指定置信度阈值
+            input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
+            inferencer.infer(input);
+          }
+          // std::cout << "decoded: " << decoded_frams.size() << std::endl;
+          total_packages += decoding_pkts.size();
+          clear_av_packets(&decoding_pkts);
         } else {
           pool += frame_idx_in_gop;
         }
@@ -140,8 +140,18 @@ int VideoProcessor::process() {
   if (hits > 0) {
     std::vector<AVPacket *> decoding_pkts =
         get_packets_for_decoding(pkts, last_frame_in_gop);
-    decoder.decode(decoding_pkts, interval, gop_idx, onDecoded);
-    all_pkts.push_back(std::move(decoding_pkts));
+    // decoder.reset();
+    decoder.decode(decoding_pkts, interval);
+    std::vector<cv::Mat> decoded_pks = decoder.getDecodedFrames();
+    success += decoded_pks.size();
+    if (!decoded_pks.empty()) {
+      YoloInferencer::InferenceInput input;
+      input.decoded_frames = decoded_pks;
+      input.object_name = object_name;      // 指定要检测的目标
+      input.confidence_thresh = confidence; // 指定置信度阈值
+      input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
+      inferencer.infer(input);
+    }
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
     if (last_frame_in_gop > 0) {
@@ -154,10 +164,6 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
 
-  decoder.waitForAllTasks();
-  for (auto &pkts : all_pkts) {
-    clear_av_packets(&pkts);
-  }
   skipped_frames += pool;
   av_packet_free(&packet);
   avformat_close_input(&fmtCtx);
@@ -208,12 +214,11 @@ VideoProcessor::get_packets_for_decoding(std::vector<AVPacket *> *packages,
   return results;
 }
 
-void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *pkts) {
-  for (AVPacket *pkt : *pkts) {
-    if (pkt) {
-      av_packet_unref(pkt);
-      av_packet_free(&pkt);
-    }
+void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *packages) {
+  if (!packages)
+    return;
+  for (AVPacket *pkt : *packages) {
+    av_packet_free(&pkt);
   }
-  pkts->clear();
+  packages->clear();
 }
