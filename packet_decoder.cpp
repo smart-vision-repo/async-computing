@@ -32,8 +32,7 @@ PacketDecoder::~PacketDecoder() {
 }
 
 bool PacketDecoder::initialize() {
-  if (avformat_open_input(&fmtCtx, video_file_name.c_str(), nullptr, nullptr) !=
-      0) {
+  if (avformat_open_input(&fmtCtx, video_file_name.c_str(), nullptr, nullptr) != 0) {
     std::cerr << "Failed to open video file: " << video_file_name << std::endl;
     return false;
   }
@@ -55,8 +54,7 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
                            int gopId, DecodeCallback callback) {
   std::vector<AVPacket *> copied_pkts;
   for (const auto *pkt : pkts) {
-    if (!pkt)
-      continue;
+    if (!pkt) continue;
     AVPacket *clone = av_packet_alloc();
     if (clone && av_packet_ref(clone, pkt) == 0) {
       copied_pkts.push_back(clone);
@@ -80,8 +78,7 @@ void PacketDecoder::workerLoop() {
     DecodeTask task;
     {
       std::unique_lock<std::mutex> lock(queueMutex);
-      queueCond.wait(lock,
-                     [this]() { return stopThreads || !taskQueue.empty(); });
+      queueCond.wait(lock, [this]() { return stopThreads || !taskQueue.empty(); });
       if (stopThreads && taskQueue.empty())
         break;
       task = std::move(taskQueue.front());
@@ -122,21 +119,11 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       continue;
     }
 
-    AVPacket *local_pkt = av_packet_alloc();
-    if (!local_pkt || av_packet_ref(local_pkt, pkt) < 0) {
-      std::cerr << "[Error] Failed to clone packet\n";
-      av_packet_free(&local_pkt);
-      continue;
-    }
+    pkt->stream_index = vidIdx;
+    std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
 
-    local_pkt->stream_index = vidIdx;
-    std::cout << "[Debug] Sending pkt of size " << local_pkt->size << "\n";
-
-    if (avcodec_send_packet(ctx, local_pkt) < 0) {
-      av_packet_unref(local_pkt);
-      av_packet_free(&local_pkt);
+    if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
-    }
 
     while (true) {
       int ret = avcodec_receive_frame(ctx, frame);
@@ -147,8 +134,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
       if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
         try {
-          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                      frame->data[0]);
+          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1, frame->data[0]);
           cv::Mat mat;
           cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
           decoded.push_back(std::move(mat));
@@ -158,17 +144,8 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       }
       av_frame_unref(frame);
     }
-
-    av_packet_unref(local_pkt);
-    av_packet_free(&local_pkt);
-
-    if (pkt) {
-      av_packet_unref(pkt);
-      av_packet_free(&pkt);
-    }
   }
 
-  // flush
   avcodec_send_packet(ctx, nullptr);
   while (true) {
     int ret = avcodec_receive_frame(ctx, frame);
@@ -179,8 +156,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
     if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
       try {
-        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                    frame->data[0]);
+        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1, frame->data[0]);
         cv::Mat mat;
         cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
         decoded.push_back(std::move(mat));
@@ -201,11 +177,16 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   try {
     task.callback(std::move(filtered), task.gopId);
   } catch (const std::exception &e) {
-    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
-              << e.what() << std::endl;
+    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": " << e.what() << std::endl;
   } catch (...) {
-    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId
-              << std::endl;
+    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId << std::endl;
+  }
+
+  for (AVPacket* pkt : task.pkts) {
+    if (pkt) {
+      av_packet_unref(pkt);
+      av_packet_free(&pkt);
+    }
   }
 
   {
@@ -217,14 +198,11 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 }
 
-void PacketDecoder::reset() {
-  // 可扩展为主动刷新解码器缓冲区
-}
+void PacketDecoder::reset() {}
 
 void PacketDecoder::waitForAllTasks() {
   std::unique_lock<std::mutex> lock(queueMutex);
-  doneCond.wait(lock,
-                [this]() { return taskQueue.empty() && activeTasks == 0; });
+  doneCond.wait(lock, [this]() { return taskQueue.empty() && activeTasks == 0; });
 
   stopThreads = true;
   queueCond.notify_all();
