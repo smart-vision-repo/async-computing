@@ -10,7 +10,6 @@ PacketDecoder::PacketDecoder(std::string video_file_name)
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
 
-  // 启动4个解码线程（可调整）
   for (int i = 0; i < 4; ++i) {
     workers.emplace_back(&PacketDecoder::workerLoop, this);
   }
@@ -73,10 +72,8 @@ void PacketDecoder::workerLoop() {
       std::unique_lock<std::mutex> lock(queueMutex);
       queueCond.wait(lock,
                      [this]() { return stopThreads || !taskQueue.empty(); });
-
       if (stopThreads && taskQueue.empty())
         break;
-
       task = std::move(taskQueue.front());
       taskQueue.pop();
     }
@@ -110,26 +107,27 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   avcodec_flush_buffers(ctx);
 
   for (AVPacket *pkt : task.pkts) {
-
     if (!pkt || pkt->size == 0 || !pkt->data) {
       std::cerr << "[Warn] Empty packet in GOP " << task.gopId << "\n";
       continue;
     }
 
-    if (!pkt) {
-      std::cerr << "[Error] Null packet pointer\n";
-      continue;
-    }
-    if (pkt->size == 0 || !pkt->data) {
-      std::cerr << "[Error] Empty packet data in GOP " << task.gopId << "\n";
+    AVPacket *local_pkt = av_packet_alloc();
+    if (!local_pkt || av_packet_ref(local_pkt, pkt) < 0) {
+      std::cerr << "[Error] Failed to clone packet\n";
+      av_packet_free(&local_pkt);
       continue;
     }
 
-    std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
+    local_pkt->stream_index = vidIdx;
+    std::cout << "[Debug] Sending pkt of size " << local_pkt->size << "\n";
 
-    pkt->stream_index = vidIdx;
-    if (avcodec_send_packet(ctx, pkt) < 0)
+    if (avcodec_send_packet(ctx, local_pkt) < 0) {
+      av_packet_unref(local_pkt);
+      av_packet_free(&local_pkt);
       continue;
+    }
+
     while (true) {
       int ret = avcodec_receive_frame(ctx, frame);
       if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
@@ -137,20 +135,22 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       if (ret < 0)
         break;
 
-      cv::Mat mat(frame->height, frame->width, CV_8UC3);
       if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
-        if (!frame->data[0]) {
-          std::cerr << "[Error] frame->data[0] is nullptr in GOP " << task.gopId
-                    << "\n";
-          continue;
+        try {
+          cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
+                      frame->data[0]);
+          cv::Mat mat;
+          cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
+          decoded.push_back(std::move(mat));
+        } catch (...) {
+          std::cerr << "[Error] Failed to convert frame\n";
         }
-        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                    frame->data[0]);
-        cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
       }
-      decoded.push_back(mat);
       av_frame_unref(frame);
     }
+
+    av_packet_unref(local_pkt);
+    av_packet_free(&local_pkt);
   }
 
   // flush
@@ -162,19 +162,22 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     if (ret < 0)
       break;
 
-    cv::Mat mat(frame->height, frame->width, CV_8UC3);
     if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
-      cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
-                  frame->data[0]);
-      cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
+      try {
+        cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
+                    frame->data[0]);
+        cv::Mat mat;
+        cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
+        decoded.push_back(std::move(mat));
+      } catch (...) {
+        std::cerr << "[Error] Failed to convert frame (flush)\n";
+      }
     }
-    decoded.push_back(mat);
     av_frame_unref(frame);
   }
 
   av_frame_free(&frame);
 
-  // interval 抽帧
   std::vector<cv::Mat> filtered;
   for (size_t i = 0; i < decoded.size(); i += task.interval) {
     filtered.push_back(std::move(decoded[i]));
@@ -194,7 +197,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     std::lock_guard<std::mutex> lock(queueMutex);
     --activeTasks;
     if (activeTasks == 0 && taskQueue.empty()) {
-      doneCond.notify_all(); // 唤醒 wait
+      doneCond.notify_all();
     }
   }
 }
