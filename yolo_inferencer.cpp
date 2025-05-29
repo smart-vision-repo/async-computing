@@ -140,10 +140,6 @@ void YoloInferencer::doInference(const InferenceTask &task) {
     Mat padded =
         letterbox(frame, input_size, 32, Scalar(114, 114, 114), &scale, &pad);
 
-    std::string img_path = "debug_gop" + std::to_string(task.gopIdx) +
-                           "_frame_" + std::to_string(frame_idx) + ".jpg";
-    imwrite(img_path, padded);
-
     Mat blob;
     blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
     net.setInput(blob);
