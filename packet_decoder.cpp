@@ -10,7 +10,7 @@ PacketDecoder::PacketDecoder(std::string video_file_name)
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
 
-  // 启动4个解码线程（可以通过宏控制）
+  // 启动4个解码线程（可调整）
   for (int i = 0; i < 4; ++i) {
     workers.emplace_back(&PacketDecoder::workerLoop, this);
   }
@@ -58,6 +58,8 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
     std::lock_guard<std::mutex> lock(queueMutex);
     taskQueue.push(DecodeTask{pkts, interval, gopId, callback});
     ++activeTasks;
+    std::cout << "[Dispatch] Task GOP " << gopId
+              << " dispatched. Total active: " << activeTasks << "\n";
   }
   queueCond.notify_one();
 }
@@ -73,8 +75,10 @@ void PacketDecoder::workerLoop() {
       std::unique_lock<std::mutex> lock(queueMutex);
       queueCond.wait(lock,
                      [this]() { return stopThreads || !taskQueue.empty(); });
+
       if (stopThreads && taskQueue.empty())
         break;
+
       task = std::move(taskQueue.front());
       taskQueue.pop();
     }
@@ -100,6 +104,8 @@ AVCodecContext *PacketDecoder::cloneDecoderContext() {
 }
 
 void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
+  std::cout << "[Decode] GOP " << task.gopId << " started\n";
+
   std::vector<cv::Mat> decoded;
   AVFrame *frame = av_frame_alloc();
 
@@ -117,8 +123,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
         break;
 
       cv::Mat mat(frame->height, frame->width, CV_8UC3);
-      // 假设frame是YUV420p格式（简化处理）
-      if (frame->format == AV_PIX_FMT_YUV420P) {
+      if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
         cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
                     frame->data[0]);
         cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
@@ -138,7 +143,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
       break;
 
     cv::Mat mat(frame->height, frame->width, CV_8UC3);
-    if (frame->format == AV_PIX_FMT_YUV420P) {
+    if (frame->format == AV_PIX_FMT_YUV420P && frame->data[0]) {
       cv::Mat yuv(frame->height + frame->height / 2, frame->width, CV_8UC1,
                   frame->data[0]);
       cv::cvtColor(yuv, mat, cv::COLOR_YUV2BGR_I420);
@@ -149,23 +154,35 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
 
   av_frame_free(&frame);
 
-  // interval 抽帧（可选）
+  // interval 抽帧
   std::vector<cv::Mat> filtered;
   for (size_t i = 0; i < decoded.size(); i += task.interval) {
     filtered.push_back(std::move(decoded[i]));
   }
 
-  task.callback(std::move(filtered), task.gopId);
-  --activeTasks;
+  try {
+    task.callback(std::move(filtered), task.gopId);
+  } catch (const std::exception &e) {
+    std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
+              << e.what() << std::endl;
+  } catch (...) {
+    std::cerr << "[Error] Unknown exception in callback for GOP " << task.gopId
+              << std::endl;
+  }
 
-  std::lock_guard<std::mutex> lock(queueMutex);
-  if (activeTasks == 0 && taskQueue.empty()) {
-    doneCond.notify_all(); // ✅ 唤醒 wait
+  {
+    std::lock_guard<std::mutex> lock(queueMutex);
+    --activeTasks;
+    std::cout << "[Complete] GOP " << task.gopId
+              << " finished. Remaining: " << activeTasks << "\n";
+    if (activeTasks == 0 && taskQueue.empty()) {
+      doneCond.notify_all(); // 唤醒 wait
+    }
   }
 }
 
 void PacketDecoder::reset() {
-  // 这里可扩展：发信号给线程调用 avcodec_flush_buffers
+  // 可扩展为主动刷新解码器缓冲区
 }
 
 void PacketDecoder::waitForAllTasks() {
@@ -173,7 +190,6 @@ void PacketDecoder::waitForAllTasks() {
   doneCond.wait(lock,
                 [this]() { return taskQueue.empty() && activeTasks == 0; });
 
-  // 停止线程池
   stopThreads = true;
   queueCond.notify_all();
   lock.unlock();
@@ -182,4 +198,6 @@ void PacketDecoder::waitForAllTasks() {
     if (t.joinable())
       t.join();
   }
+
+  std::cout << "[Done] All tasks completed and threads joined\n";
 }
