@@ -171,12 +171,13 @@ void YoloInferencer::doInference(const InferenceTask &task) {
         }
       }
       float final_conf = sigmoid(max_score);
-      std::cout << "[DEBUG] Frame " << frame_idx << ", class_id = " << class_id
-                << ", final_conf = " << final_conf << ", class_name = "
-                << (class_id >= 0 && class_id < class_names.size()
-                        ? class_names[class_id]
-                        : "INVALID")
-                << std::endl;
+      //   std::cout << "[DEBUG] Frame " << frame_idx << ", class_id = " <<
+      //   class_id
+      //             << ", final_conf = " << final_conf << ", class_name = "
+      //             << (class_id >= 0 && class_id < class_names.size()
+      //                     ? class_names[class_id]
+      //                     : "INVALID")
+      //             << std::endl;
 
       if (final_conf >= task.confidence_thresh && class_id >= 0 &&
           class_id < static_cast<int>(class_names.size()) &&
