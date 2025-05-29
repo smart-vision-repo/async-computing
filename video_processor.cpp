@@ -35,8 +35,8 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
                                const std::string &object_name, float confidence,
                                int interval)
     : decoder(const_cast<std::string &>(video_file_name)),
-      success_decoded_frames(0), video_file_name(video_file_name),
-      interval(interval), object_name(object_name), confidence(confidence) {}
+      video_file_name(video_file_name), object_name(object_name),
+      confidence(confidence), interval(interval), success_decoded_frames(0) {}
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
