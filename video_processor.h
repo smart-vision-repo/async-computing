@@ -2,6 +2,7 @@
 #define VIDEO_PROCESSOR_H
 
 #include "packet_decoder.h"
+#include "yolo_inferencer.h"
 #include <string>
 #include <vector>
 extern "C" {
@@ -27,6 +28,7 @@ private:
   std::string video_file_name;
   int interval;
   int success_decoded_frames = 0;
+  YoloInferencer inferencer;
 };
 
 #endif // VIDEO_PROCESSOR_H

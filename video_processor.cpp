@@ -31,7 +31,7 @@ extern "C" {
 VideoProcessor::VideoProcessor(const std::string &video_file_name, int interval)
     : decoder(const_cast<std::string &>(video_file_name)),
       success_decoded_frames(0), video_file_name(video_file_name),
-      interval(interval) {
+      interval(interval), inferencer() {
   // 其他初始化逻辑
 }
 
@@ -40,14 +40,13 @@ VideoProcessor::~VideoProcessor() {
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  success_decoded_frames = +frames.size();
-  std::cout << "id: " << gopId << ", frames: " << frames.size() << std::endl;
-  //   YoloInferencer::InferenceInput input;
-  //   input.decoded_frames = decoded_pks;
-  //   input.object_name = object_name;      // 指定要检测的目标
-  //   input.confidence_thresh = confidence; // 指定置信度阈值
-  //   input.gopIdx = gop_idx;               // GOP 索引，需你自己维护
-  //   inferencer.infer(input);
+  success_decoded_frames += frames.size();
+  YoloInferencer::InferenceInput input;
+  input.decoded_frames = frames;
+  input.object_name = "dog";      // 指定要检测的目标
+  input.confidence_thresh = 0.5f; // 指定置信度阈值
+  input.gopIdx = gopId;           // GOP 索引，需你自己维护
+  inferencer.infer(input);
 }
 
 int VideoProcessor::process() {
