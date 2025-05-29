@@ -39,7 +39,7 @@ VideoProcessor::~VideoProcessor() {
   // 清理逻辑（如有）
 }
 
-void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+static void onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << "id: " << gopId << ", size " << frames.size() << " frames"
             << std::endl;
 }
