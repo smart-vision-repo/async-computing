@@ -136,6 +136,10 @@ void YoloInferencer::doInference(const InferenceTask &task) {
     Mat padded =
         letterbox(frame, input_size, 32, Scalar(114, 114, 114), &scale, &pad);
 
+    // 保存 letterbox 后图片进行人工检查
+    std::string img_path = "debug_frame_" + std::to_string(frame_idx) + ".jpg";
+    imwrite(img_path, padded);
+
     Mat blob;
     blobFromImage(padded, blob, 1.0 / 255.0, input_size, Scalar(), true, false);
     net.setInput(blob);
@@ -152,7 +156,6 @@ void YoloInferencer::doInference(const InferenceTask &task) {
     for (int i = 0; i < num_preds; ++i) {
       float *data = output.ptr<float>(0, 0) + i * num_attrs;
 
-      // Debug前10个值
       if (i < 3) {
         std::cout << "[DEBUG] Raw: ";
         for (int j = 0; j < std::min(num_attrs, 10); ++j) {
@@ -164,20 +167,21 @@ void YoloInferencer::doInference(const InferenceTask &task) {
       float max_score = -1e9;
       int class_id = -1;
       for (int c = 0; c < num_classes; ++c) {
-        float score = data[c];
-        if (score > max_score) {
-          max_score = score;
+        float cls_score = data[c];
+        if (cls_score > max_score) {
+          max_score = cls_score;
           class_id = c;
         }
       }
+
       float final_conf = sigmoid(max_score);
-      //   std::cout << "[DEBUG] Frame " << frame_idx << ", class_id = " <<
-      //   class_id
-      //             << ", final_conf = " << final_conf << ", class_name = "
-      //             << (class_id >= 0 && class_id < class_names.size()
-      //                     ? class_names[class_id]
-      //                     : "INVALID")
-      //             << std::endl;
+
+      std::cout << "[DEBUG] Frame " << frame_idx << ", class_id = " << class_id
+                << ", final_conf = " << final_conf << ", class_name = "
+                << (class_id >= 0 && class_id < class_names.size()
+                        ? class_names[class_id]
+                        : "INVALID")
+                << std::endl;
 
       if (final_conf >= task.confidence_thresh && class_id >= 0 &&
           class_id < static_cast<int>(class_names.size()) &&
