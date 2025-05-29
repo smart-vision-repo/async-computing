@@ -15,21 +15,13 @@ YoloInferencer::YoloInferencer() {
     loadClassNamesFromEnv();
     loadModelFromEnv();
     initialized = true;
-    running = true;
-    worker_thread = std::thread(&YoloInferencer::processLoop, this);
   } catch (const std::exception &e) {
     std::cerr << "YoloInferencer init failed: " << e.what() << std::endl;
     initialized = false;
   }
 }
 
-YoloInferencer::~YoloInferencer() {
-  running = false;
-  cv_task.notify_one();
-  if (worker_thread.joinable()) {
-    worker_thread.join();
-  }
-}
+YoloInferencer::~YoloInferencer() {}
 
 void YoloInferencer::loadClassNamesFromEnv() {
   const char *names_path = std::getenv("YOLO_COCO_NAMES");
@@ -103,26 +95,7 @@ void YoloInferencer::infer(const InferenceInput &input) {
     return;
   InferenceTask task{input.decoded_frames, input.object_name,
                      input.confidence_thresh, input.gopIdx};
-  {
-    std::lock_guard<std::mutex> lock(queue_mutex);
-    task_queue.push(std::move(task));
-  }
-  cv_task.notify_one();
-}
-
-void YoloInferencer::processLoop() {
-  while (running) {
-    InferenceTask task;
-    {
-      std::unique_lock<std::mutex> lock(queue_mutex);
-      cv_task.wait(lock, [&] { return !task_queue.empty() || !running; });
-      if (!running)
-        break;
-      task = std::move(task_queue.front());
-      task_queue.pop();
-    }
-    doInference(task);
-  }
+  doInference(task);
 }
 
 // 修复后的 doInference 方法

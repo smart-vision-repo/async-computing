@@ -1,9 +1,14 @@
+// yolo_inferencer.h
 #pragma once
 
-#include <opencv2/core.hpp>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <opencv2/dnn.hpp>
-#include <opencv2/imgproc.hpp>
+#include <opencv2/opencv.hpp>
+#include <queue>
 #include <string>
+#include <thread>
 #include <vector>
 
 class YoloInferencer {
@@ -19,9 +24,14 @@ public:
   ~YoloInferencer();
 
   void infer(const InferenceInput &input);
-  void waitForAllTasks(); // 占位函数，当前为空实现
 
 private:
+  cv::dnn::Net net;
+  std::vector<std::string> class_names;
+  int num_classes = 0;
+  cv::Size input_size = {640, 640};
+  bool initialized = false;
+
   struct InferenceTask {
     std::vector<cv::Mat> frames;
     std::string object_name;
@@ -33,8 +43,9 @@ private:
   void loadModelFromEnv();
   void doInference(const InferenceTask &task);
 
-  cv::dnn::Net net;
-  std::vector<std::string> class_names;
-  int num_classes = 0;
-  bool initialized = false;
+  cv::Mat letterbox(const cv::Mat &src, const cv::Size &target_size,
+                    int stride = 32,
+                    cv::Scalar color = cv::Scalar(114, 114, 114),
+                    float *scale_out = nullptr,
+                    cv::Point *padding_out = nullptr);
 };
