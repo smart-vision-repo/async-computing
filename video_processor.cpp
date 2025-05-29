@@ -1,14 +1,20 @@
 // video_processor.cpp
 
 #include "video_processor.h"
+#include "yolo_inferencer.h" // 确保包含推理器声明
+
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <numeric>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -28,7 +34,11 @@ extern "C" {
 #include <opencv2/opencv.hpp>
 
 VideoProcessor::~VideoProcessor() {
-  // 清理逻辑（如有）
+  stop_infer_thread = true;
+  infer_cv.notify_all();
+  if (infer_thread.joinable()) {
+    infer_thread.join();
+  }
 }
 
 VideoProcessor::VideoProcessor(const std::string &video_file_name,
@@ -36,16 +46,43 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
                                int interval)
     : decoder(const_cast<std::string &>(video_file_name)),
       video_file_name(video_file_name), object_name(object_name),
-      confidence(confidence), interval(interval), success_decoded_frames(0) {}
+      confidence(confidence), interval(interval), success_decoded_frames(0),
+      stop_infer_thread(false) {
+
+  // 启动独立推理线程
+  infer_thread = std::thread([this]() {
+    while (!stop_infer_thread) {
+      std::unique_lock<std::mutex> lock(infer_mutex);
+      infer_cv.wait(lock, [this]() {
+        return !infer_inputs.empty() || stop_infer_thread;
+      });
+
+      while (!infer_inputs.empty()) {
+        YoloInferencer::InferenceInput input = std::move(infer_inputs.front());
+        infer_inputs.pop();
+        lock.unlock();
+
+        inferencer.infer(input);
+
+        lock.lock();
+      }
+    }
+  });
+}
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
-  // YoloInferencer::InferenceInput input;
-  // input.decoded_frames = frames;
-  // input.object_name = object_name;
-  // input.confidence_thresh = confidence;
-  // input.gopIdx = gopId;
-  // infer_inputs.push_back(input);
+  YoloInferencer::InferenceInput input;
+  input.decoded_frames = std::move(frames);
+  input.object_name = object_name;
+  input.confidence_thresh = confidence;
+  input.gopIdx = gopId;
+
+  {
+    std::lock_guard<std::mutex> lock(infer_mutex);
+    infer_inputs.push(std::move(input));
+  }
+  infer_cv.notify_one();
 }
 
 int VideoProcessor::process() {
@@ -88,7 +125,6 @@ int VideoProcessor::process() {
   int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
       total_packages = 0;
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
-  // 收集所有 GOP 的 packet，统一存储
   std::vector<std::vector<AVPacket *>> all_pkts;
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
@@ -101,7 +137,6 @@ int VideoProcessor::process() {
       if (is_key_frame) {
         int last_frame_in_gop = 0;
         if (hits > 0) {
-          // std::cout << gop_idx << "," << hits << std::endl;
           skipped_frames += pool;
           last_frame_in_gop = hits * interval - pool;
           decoded_frames += last_frame_in_gop;
@@ -152,10 +187,13 @@ int VideoProcessor::process() {
   } else {
     pool += frame_idx_in_gop;
   }
+
   decoder.waitForAllTasks();
+
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
   }
+
   skipped_frames += pool;
   av_packet_free(&packet);
   avformat_close_input(&fmtCtx);
@@ -175,6 +213,7 @@ int VideoProcessor::process() {
             << "percentage: " << percentage << "%" << std::endl
             << "successfully decoded: " << success_decoded_frames << std::endl
             << "extracted frames: " << total_hits << std::endl;
+
   return 0;
 }
 

@@ -32,7 +32,12 @@ private:
   float confidence;
   int interval;
   int success_decoded_frames;
-  std::vector<YoloInferencer::InferenceInput> infer_inputs;
+  std::queue<YoloInferencer::InferenceInput> infer_inputs;
+  std::mutex infer_mutex;
+  std::condition_variable infer_cv;
+  std::thread infer_thread;
+  std::atomic<bool> stop_infer_thread;
+  YoloInferencer inferencer;
 };
 
 #endif // VIDEO_PROCESSOR_H
