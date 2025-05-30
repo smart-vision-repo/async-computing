@@ -1,3 +1,4 @@
+// video_processor.h
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
 
@@ -12,7 +13,6 @@ extern "C" {
 #include <libavformat/avformat.h>
 }
 
-// 声明 VideoProcessor 类
 class VideoProcessor {
 public:
   VideoProcessor(const std::string &video_file_name,
@@ -30,6 +30,7 @@ private:
                            int last_frame_index);
   void clear_av_packets(std::vector<AVPacket *> *packages);
   int initialize();
+
   PacketDecoder decoder;
   std::string video_file_name;
   std::string object_name;
