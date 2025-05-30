@@ -3,6 +3,8 @@
 #include "inference_input.hpp"
 #include "packet_decoder.h"
 #include "yolo_inferencer.h"
+#include <atomic>
+#include <condition_variable>
 #include <string>
 #include <vector>
 extern "C" {
