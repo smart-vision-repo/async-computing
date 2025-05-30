@@ -220,51 +220,51 @@ void TensorInferencer::processOutput(const InferenceInput &input,
                 << ", Confidence: " << confidence
                 << ", Class: " << input.object_name << ", Box: (" << x1 << ","
                 << y1 << "," << x2 << "," << y2 << ")\n";
-      // 保存图片
       saveAnnotatedImage(raw_img, x1, y1, x2, y2, confidence, input.object_name,
                          input.gopIdx);
     }
   }
+}
 
-#include <iomanip> // for std::setprecision
+void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
+                                          float y1, float x2, float y2,
+                                          float confidence,
+                                          const std::string &class_name,
+                                          int gopIdx) {
+  cv::Mat img_to_save = raw_img.clone();
 
-  void TensorInferencer::saveAnnotatedImage(
-      const cv::Mat &raw_img, float x1, float y1, float x2, float y2,
-      float confidence, const std::string &class_name, int gopIdx) {
-    cv::Mat img_to_save = raw_img.clone();
+  float scale_x =
+      static_cast<float>(raw_img.cols) / static_cast<float>(target_w_);
+  float scale_y =
+      static_cast<float>(raw_img.rows) / static_cast<float>(target_h_);
+  int x1_scaled = static_cast<int>(x1 * scale_x);
+  int y1_scaled = static_cast<int>(y1 * scale_y);
+  int x2_scaled = static_cast<int>(x2 * scale_x);
+  int y2_scaled = static_cast<int>(y2 * scale_y);
 
-    float scale_x =
-        static_cast<float>(raw_img.cols) / static_cast<float>(target_w_);
-    float scale_y =
-        static_cast<float>(raw_img.rows) / static_cast<float>(target_h_);
-    int x1_scaled = static_cast<int>(x1 * scale_x);
-    int y1_scaled = static_cast<int>(y1 * scale_y);
-    int x2_scaled = static_cast<int>(x2 * scale_x);
-    int y2_scaled = static_cast<int>(y2 * scale_y);
+  // Draw rectangle
+  cv::rectangle(img_to_save, cv::Point(x1_scaled, y1_scaled),
+                cv::Point(x2_scaled, y2_scaled), cv::Scalar(0, 255, 0), 2);
 
-    // Draw rectangle
-    cv::rectangle(img_to_save, cv::Point(x1_scaled, y1_scaled),
-                  cv::Point(x2_scaled, y2_scaled), cv::Scalar(0, 255, 0), 2);
+  // Create label
+  std::ostringstream label;
+  label << class_name << " " << std::fixed << std::setprecision(2)
+        << confidence;
+  int baseline = 0;
+  cv::Size textSize =
+      cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
 
-    // Create label
-    std::ostringstream label;
-    label << class_name << " " << std::fixed << std::setprecision(2)
-          << confidence;
-    int baseline = 0;
-    cv::Size textSize = cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX,
-                                        0.5, 1, &baseline);
+  // Draw background rectangle for text
+  cv::rectangle(img_to_save,
+                cv::Point(x1_scaled, y1_scaled - textSize.height - 4),
+                cv::Point(x1_scaled + textSize.width, y1_scaled),
+                cv::Scalar(0, 255, 0), cv::FILLED);
+  cv::putText(img_to_save, label.str(), cv::Point(x1_scaled, y1_scaled - 2),
+              cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 
-    // Draw background rectangle for text
-    cv::rectangle(img_to_save,
-                  cv::Point(x1_scaled, y1_scaled - textSize.height - 4),
-                  cv::Point(x1_scaled + textSize.width, y1_scaled),
-                  cv::Scalar(0, 255, 0), cv::FILLED);
-    cv::putText(img_to_save, label.str(), cv::Point(x1_scaled, y1_scaled - 2),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
-
-    // Save image
-    std::ostringstream filename;
-    filename << image_output_path_ << "/gop" << gopIdx << "_conf"
-             << static_cast<int>(confidence * 100) << ".jpg";
-    cv::imwrite(filename.str(), img_to_save);
-  }
+  // Save image
+  std::ostringstream filename;
+  filename << image_output_path_ << "/gop" << gopIdx << "_conf"
+           << static_cast<int>(confidence * 100) << ".jpg";
+  cv::imwrite(filename.str(), img_to_save);
+}
