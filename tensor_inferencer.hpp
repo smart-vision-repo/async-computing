@@ -7,6 +7,12 @@
 #include <unordered_map>
 #include <vector>
 
+struct Detection {
+  float x1, y1, x2, y2;
+  float confidence;
+  int class_id;
+};
+
 class TensorInferencer {
 public:
   TensorInferencer(int video_height, int video_width);
@@ -42,6 +48,9 @@ private:
   // Image saving path (loaded from YOLO_IMAGE_PATH env)
   std::string image_output_path_;
 
+  std::vector<Detection> applyNMS(const std::vector<Detection> &detections,
+                                  float iou_threshold);
+
   void processOutput(const InferenceInput &input,
                      const std::vector<float> &host_output,
                      const cv::Mat &raw_img);
@@ -49,4 +58,5 @@ private:
                           float y2, float confidence,
                           const std::string &class_name, int gopIdx);
   void printEngineInfo();
+  float calculateIoU(const Detection &a, const Detection &b);
 };

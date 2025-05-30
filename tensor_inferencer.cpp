@@ -265,16 +265,19 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output,
                                      const cv::Mat &raw_img) {
-  // std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
-  // << std::endl;
+  std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
+            << std::endl;
 
-  // YOLOv8 输出格式: [cx, cy, w, h, class0, class1, ..., class79]
-  int box_step = 84; // 4 + 80 = 84
+  // YOLOv8 输出格式检查
+  // 对于检测任务，通常是 [1, 84, 8400] 或转置后的 [1, 8400, 84]
+  // 84 = 4(坐标) + 80(COCO类别)
+
   int num_classes = 80;
-  int num_boxes = static_cast<int>(host_output.size() / box_step);
+  int box_info_size = 4 + num_classes; // 84
+  int num_boxes = static_cast<int>(host_output.size() / box_info_size);
 
-  // std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
-  // std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
+  std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
+  std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
 
   auto it = class_name_to_id_.find(input.object_name);
   if (it == class_name_to_id_.end()) {
@@ -283,139 +286,281 @@ void TensorInferencer::processOutput(const InferenceInput &input,
     return;
   }
   int target_class_id = it->second;
-  // std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
+  std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
 
-  int detections_found = 0;
   float confidence_threshold =
-      std::max(0.1f, input.confidence_thresh); // 至少0.1的阈值
-  // std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold <<
-  // std::endl;
+      std::max(0.3f, input.confidence_thresh); // 提高最低阈值到0.3
+  std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
+
+  std::vector<Detection> detections; // 用于存储所有有效检测
 
   for (int i = 0; i < num_boxes; ++i) {
-    const float *det = &host_output[i * box_step];
+    const float *det = &host_output[i * box_info_size];
 
-    // 找到最高概率的类别
-    int best_class_id = -1;
+    // YOLOv8的原始输出需要应用sigmoid激活函数
+    // 坐标: det[0-3]
+    // 类别概率: det[4-83]
+
+    // 应用sigmoid到类别得分
+    std::vector<float> class_scores(num_classes);
     float max_score = 0.0f;
+    int best_class_id = -1;
 
     for (int j = 0; j < num_classes; ++j) {
-      float cls_score = det[4 + j];
-      if (cls_score > max_score) {
-        max_score = cls_score;
+      // 应用sigmoid激活函数：1 / (1 + exp(-x))
+      float raw_score = det[4 + j];
+      class_scores[j] = 1.0f / (1.0f + std::exp(-raw_score));
+
+      if (class_scores[j] > max_score) {
+        max_score = class_scores[j];
         best_class_id = j;
       }
     }
 
-    // 专门检查dog类别的得分
-    float dog_score = det[4 + target_class_id];
+    // 获取目标类别的置信度
+    float target_confidence = class_scores[target_class_id];
 
-    // 打印前几个框的详细信息
-    // if (i < 5 || max_score > 0.05f || dog_score > 0.05f) {
-    //   std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << "
-    //   (类别"
-    //             << best_class_id << "), dog得分=" << dog_score << ", 坐标=("
-    //             << det[0] << "," << det[1] << "," << det[2] << "," << det[3]
-    //             << ")" << std::endl;
-    // }
+    // 调试输出（只打印前几个和高置信度的）
+    if (i < 10 || max_score > 0.1f) {
+      std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
+                << best_class_id << ")"
+                << ", " << input.object_name << "得分=" << target_confidence
+                << std::endl;
+    }
 
-    // 检查是否检测到dog
+    // 检查是否检测到目标类别
     if (best_class_id == target_class_id && max_score >= confidence_threshold) {
-      detections_found++;
-
       float cx = det[0], cy = det[1], w = det[2], h = det[3];
 
-      // 坐标转换 - YOLOv8 输出是归一化坐标
+      // YOLOv8输出通常是相对于输入尺寸的坐标
+      // 如果坐标值 > 1，说明已经是像素坐标；如果 <= 1，说明是归一化坐标
       if (cx <= 1.0f && cy <= 1.0f && w <= 1.0f && h <= 1.0f) {
+        // 归一化坐标，转换为像素坐标
         cx *= target_w_;
         cy *= target_h_;
         w *= target_w_;
         h *= target_h_;
       }
 
-      float x1 = cx - w / 2, y1 = cy - h / 2;
-      float x2 = cx + w / 2, y2 = cy + h / 2;
+      float x1 = cx - w / 2.0f;
+      float y1 = cy - h / 2.0f;
+      float x2 = cx + w / 2.0f;
+      float y2 = cy + h / 2.0f;
+
+      // 边界检查
+      x1 = std::max(0.0f, std::min(x1, static_cast<float>(target_w_ - 1)));
+      y1 = std::max(0.0f, std::min(y1, static_cast<float>(target_h_ - 1)));
+      x2 = std::max(x1, std::min(x2, static_cast<float>(target_w_ - 1)));
+      y2 = std::max(y1, std::min(y2, static_cast<float>(target_h_ - 1)));
+
+      // 添加到检测结果
+      Detection detection;
+      detection.x1 = x1;
+      detection.y1 = y1;
+      detection.x2 = x2;
+      detection.y2 = y2;
+      detection.confidence = max_score;
+      detection.class_id = best_class_id;
+      detections.push_back(detection);
 
       std::cout << "[DETECTION] 发现 " << input.object_name
                 << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
                 << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
                 << ")" << std::endl;
-
-      saveAnnotatedImage(input.decoded_frames[0], x1, y1, x2, y2, max_score,
-                         input.object_name, input.gopIdx);
     }
   }
 
-  std::cout << "[OUTPUT] 处理完成，共发现 " << detections_found << " 个 "
+  std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
             << input.object_name << std::endl;
 
-  if (detections_found == 0) {
+  // 应用非极大值抑制(NMS)去除重复检测
+  std::vector<Detection> nms_detections =
+      applyNMS(detections, 0.5f); // IoU阈值0.5
+
+  std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
+            << std::endl;
+
+  // 只保存NMS后的结果
+  for (size_t i = 0; i < nms_detections.size(); ++i) {
+    const auto &det = nms_detections[i];
+    saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
+                       input.object_name, input.gopIdx, i);
+  }
+
+  if (nms_detections.empty()) {
     std::cout << "[INFO] 未检测到目标物体，可能原因:" << std::endl;
     std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
               << std::endl;
     std::cout << "  2. 图像预处理问题" << std::endl;
     std::cout << "  3. 模型输出格式不匹配" << std::endl;
+    std::cout << "  4. 需要应用sigmoid激活函数" << std::endl;
   }
+}
+
+float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
+  float x1 = std::max(a.x1, b.x1);
+  float y1 = std::max(a.y1, b.y1);
+  float x2 = std::min(a.x2, b.x2);
+  float y2 = std::min(a.y2, b.y2);
+
+  if (x2 <= x1 || y2 <= y1)
+    return 0.0f;
+
+  float intersection = (x2 - x1) * (y2 - y1);
+  float area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
+  float area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
+  float union_area = area_a + area_b - intersection;
+
+  return intersection / union_area;
+}
+
+// void TensorInferencer::processOutput(const InferenceInput &input,
+//                                      const std::vector<float> &host_output,
+//                                      const cv::Mat &raw_img) {
+//   // std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
+//   // << std::endl;
+
+//   // YOLOv8 输出格式: [cx, cy, w, h, class0, class1, ..., class79]
+//   int box_step = 84; // 4 + 80 = 84
+//   int num_classes = 80;
+//   int num_boxes = static_cast<int>(host_output.size() / box_step);
+
+//   // std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
+//   // std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
+
+//   auto it = class_name_to_id_.find(input.object_name);
+//   if (it == class_name_to_id_.end()) {
+//     std::cerr << "[ERROR] 类别 '" << input.object_name << "' 未找到!"
+//               << std::endl;
+//     return;
+//   }
+//   int target_class_id = it->second;
+//   // std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
+
+//   int detections_found = 0;
+//   float confidence_threshold =
+//       std::max(0.1f, input.confidence_thresh); // 至少0.1的阈值
+//   // std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold <<
+//   // std::endl;
+
+//   for (int i = 0; i < num_boxes; ++i) {
+//     const float *det = &host_output[i * box_step];
+
+//     // 找到最高概率的类别
+//     int best_class_id = -1;
+//     float max_score = 0.0f;
+
+//     for (int j = 0; j < num_classes; ++j) {
+//       float cls_score = det[4 + j];
+//       if (cls_score > max_score) {
+//         max_score = cls_score;
+//         best_class_id = j;
+//       }
+//     }
+
+//     // 专门检查dog类别的得分
+//     float dog_score = det[4 + target_class_id];
+
+//     // 打印前几个框的详细信息
+//     // if (i < 5 || max_score > 0.05f || dog_score > 0.05f) {
+//     //   std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << "
+//     //   (类别"
+//     //             << best_class_id << "), dog得分=" << dog_score << ",
+//     坐标=("
+//     //             << det[0] << "," << det[1] << "," << det[2] << "," <<
+//     det[3]
+//     //             << ")" << std::endl;
+//     // }
+
+//     // 检查是否检测到dog
+//     if (best_class_id == target_class_id && max_score >=
+//     confidence_threshold) {
+//       detections_found++;
+
+//       float cx = det[0], cy = det[1], w = det[2], h = det[3];
+
+//       // 坐标转换 - YOLOv8 输出是归一化坐标
+//       if (cx <= 1.0f && cy <= 1.0f && w <= 1.0f && h <= 1.0f) {
+//         cx *= target_w_;
+//         cy *= target_h_;
+//         w *= target_w_;
+//         h *= target_h_;
+//       }
+
+//       float x1 = cx - w / 2, y1 = cy - h / 2;
+//       float x2 = cx + w / 2, y2 = cy + h / 2;
+
+//       std::cout << "[DETECTION] 发现 " << input.object_name
+//                 << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
+//                 << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
+//                 << ")" << std::endl;
+
+//       saveAnnotatedImage(input.decoded_frames[0], x1, y1, x2, y2, max_score,
+//                          input.object_name, input.gopIdx);
+//     }
+//   }
+
+//   std::cout << "[OUTPUT] 处理完成，共发现 " << detections_found << " 个 "
+//             << input.object_name << std::endl;
+
+//   if (detections_found == 0) {
+//     std::cout << "[INFO] 未检测到目标物体，可能原因:" << std::endl;
+//     std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
+//               << std::endl;
+//     std::cout << "  2. 图像预处理问题" << std::endl;
+//     std::cout << "  3. 模型输出格式不匹配" << std::endl;
+//   }
+// }
+
+std::vector<Detection>
+TensorInferencer::applyNMS(const std::vector<Detection> &detections,
+                           float iou_threshold) {
+  if (detections.empty())
+    return {};
+
+  // 按置信度排序
+  std::vector<Detection> sorted_detections = detections;
+  std::sort(sorted_detections.begin(), sorted_detections.end(),
+            [](const Detection &a, const Detection &b) {
+              return a.confidence > b.confidence;
+            });
+
+  std::vector<Detection> result;
+  std::vector<bool> suppressed(sorted_detections.size(), false);
+
+  for (size_t i = 0; i < sorted_detections.size(); ++i) {
+    if (suppressed[i])
+      continue;
+
+    result.push_back(sorted_detections[i]);
+
+    // 抑制与当前检测重叠度高的其他检测
+    for (size_t j = i + 1; j < sorted_detections.size(); ++j) {
+      if (suppressed[j])
+        continue;
+
+      float iou = calculateIoU(sorted_detections[i], sorted_detections[j]);
+      if (iou > iou_threshold) {
+        suppressed[j] = true;
+      }
+    }
+  }
+
+  return result;
 }
 
 void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
                                           float y1, float x2, float y2,
                                           float confidence,
                                           const std::string &class_name,
-                                          int gopIdx) {
-  std::cout << "[SAVE] 准备保存标注图像" << std::endl;
-  std::cout << "[SAVE] 类别: " << class_name << ", 置信度: " << confidence
-            << std::endl;
-  std::cout << "[SAVE] 原图尺寸: " << raw_img.cols << "x" << raw_img.rows
-            << std::endl;
-  std::cout << "[SAVE] 检测框(模型坐标): (" << x1 << "," << y1 << ") - (" << x2
-            << "," << y2 << ")" << std::endl;
+                                          int gopIdx, int detection_idx) {
+  // ... 原有的图像处理代码保持不变 ...
 
-  cv::Mat img_to_save = raw_img.clone();
-
-  // 坐标映射回原图
-  float scale_x =
-      static_cast<float>(raw_img.cols) / static_cast<float>(target_w_);
-  float scale_y =
-      static_cast<float>(raw_img.rows) / static_cast<float>(target_h_);
-
-  int x1_scaled = static_cast<int>(x1 * scale_x);
-  int y1_scaled = static_cast<int>(y1 * scale_y);
-  int x2_scaled = static_cast<int>(x2 * scale_x);
-  int y2_scaled = static_cast<int>(y2 * scale_y);
-
-  std::cout << "[SAVE] 缩放比例: " << scale_x << "x" << scale_y << std::endl;
-  std::cout << "[SAVE] 映射后框: (" << x1_scaled << "," << y1_scaled << ") - ("
-            << x2_scaled << "," << y2_scaled << ")" << std::endl;
-
-  // 边界检查
-  x1_scaled = std::max(0, std::min(x1_scaled, raw_img.cols - 1));
-  y1_scaled = std::max(0, std::min(y1_scaled, raw_img.rows - 1));
-  x2_scaled = std::max(0, std::min(x2_scaled, raw_img.cols - 1));
-  y2_scaled = std::max(0, std::min(y2_scaled, raw_img.rows - 1));
-
-  // 画框
-  cv::rectangle(img_to_save, cv::Point(x1_scaled, y1_scaled),
-                cv::Point(x2_scaled, y2_scaled), cv::Scalar(0, 255, 0), 3);
-
-  // 标签
-  std::ostringstream label;
-  label << class_name << " " << std::fixed << std::setprecision(2)
-        << confidence;
-  int baseline = 0;
-  cv::Size textSize =
-      cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.8, 2, &baseline);
-
-  cv::rectangle(img_to_save,
-                cv::Point(x1_scaled, y1_scaled - textSize.height - 6),
-                cv::Point(x1_scaled + textSize.width, y1_scaled),
-                cv::Scalar(0, 255, 0), cv::FILLED);
-  cv::putText(img_to_save, label.str(), cv::Point(x1_scaled, y1_scaled - 4),
-              cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 0), 2);
-
-  // 保存文件
+  // 修改文件名，包含检测索引
   std::ostringstream filename;
-  filename << image_output_path_ << "/gop" << gopIdx << "_" << class_name
-           << "_conf" << static_cast<int>(confidence * 100) << ".jpg";
+  filename << image_output_path_ << "/gop" << gopIdx << "_" << class_name << "_"
+           << detection_idx << "_conf" << static_cast<int>(confidence * 100)
+           << ".jpg";
 
   bool success = cv::imwrite(filename.str(), img_to_save);
   if (success) {
@@ -424,3 +569,74 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
     std::cerr << "[ERROR] ✗ 保存失败: " << filename.str() << std::endl;
   }
 }
+
+// void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
+//                                           float y1, float x2, float y2,
+//                                           float confidence,
+//                                           const std::string &class_name,
+//                                           int gopIdx) {
+//   std::cout << "[SAVE] 准备保存标注图像" << std::endl;
+//   std::cout << "[SAVE] 类别: " << class_name << ", 置信度: " << confidence
+//             << std::endl;
+//   std::cout << "[SAVE] 原图尺寸: " << raw_img.cols << "x" << raw_img.rows
+//             << std::endl;
+//   std::cout << "[SAVE] 检测框(模型坐标): (" << x1 << "," << y1 << ") - (" <<
+//   x2
+//             << "," << y2 << ")" << std::endl;
+
+//   cv::Mat img_to_save = raw_img.clone();
+
+//   // 坐标映射回原图
+//   float scale_x =
+//       static_cast<float>(raw_img.cols) / static_cast<float>(target_w_);
+//   float scale_y =
+//       static_cast<float>(raw_img.rows) / static_cast<float>(target_h_);
+
+//   int x1_scaled = static_cast<int>(x1 * scale_x);
+//   int y1_scaled = static_cast<int>(y1 * scale_y);
+//   int x2_scaled = static_cast<int>(x2 * scale_x);
+//   int y2_scaled = static_cast<int>(y2 * scale_y);
+
+//   std::cout << "[SAVE] 缩放比例: " << scale_x << "x" << scale_y << std::endl;
+//   std::cout << "[SAVE] 映射后框: (" << x1_scaled << "," << y1_scaled << ") -
+//   ("
+//             << x2_scaled << "," << y2_scaled << ")" << std::endl;
+
+//   // 边界检查
+//   x1_scaled = std::max(0, std::min(x1_scaled, raw_img.cols - 1));
+//   y1_scaled = std::max(0, std::min(y1_scaled, raw_img.rows - 1));
+//   x2_scaled = std::max(0, std::min(x2_scaled, raw_img.cols - 1));
+//   y2_scaled = std::max(0, std::min(y2_scaled, raw_img.rows - 1));
+
+//   // 画框
+//   cv::rectangle(img_to_save, cv::Point(x1_scaled, y1_scaled),
+//                 cv::Point(x2_scaled, y2_scaled), cv::Scalar(0, 255, 0), 3);
+
+//   // 标签
+//   std::ostringstream label;
+//   label << class_name << " " << std::fixed << std::setprecision(2)
+//         << confidence;
+//   int baseline = 0;
+//   cv::Size textSize =
+//       cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.8, 2,
+//       &baseline);
+
+//   cv::rectangle(img_to_save,
+//                 cv::Point(x1_scaled, y1_scaled - textSize.height - 6),
+//                 cv::Point(x1_scaled + textSize.width, y1_scaled),
+//                 cv::Scalar(0, 255, 0), cv::FILLED);
+//   cv::putText(img_to_save, label.str(), cv::Point(x1_scaled, y1_scaled - 4),
+//               cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 0, 0), 2);
+
+//   // 保存文件
+//   std::ostringstream filename;
+//   filename << image_output_path_ << "/gop" << gopIdx << "_" << class_name
+//            << "_conf" << static_cast<int>(confidence * 100) << ".jpg";
+
+//   bool success = cv::imwrite(filename.str(), img_to_save);
+//   if (success) {
+//     std::cout << "[SAVE] ✓ 图片已保存: " << filename.str() << std::endl;
+//   } else {
+//     std::cerr << "[ERROR] ✗ 保存失败: " << filename.str() << std::endl;
+//   }
+// }
