@@ -1,7 +1,5 @@
-// video_processor.cpp
-
 #include "video_processor.h"
-#include "yolo_inferencer.h" // 确保包含推理器声明
+#include "yolo_inferencer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -39,6 +37,10 @@ VideoProcessor::~VideoProcessor() {
   if (infer_thread.joinable()) {
     infer_thread.join();
   }
+  if (fmtCtx) {
+    avformat_close_input(&fmtCtx);
+    fmtCtx = nullptr;
+  }
 }
 
 VideoProcessor::VideoProcessor(const std::string &video_file_name,
@@ -47,9 +49,12 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     : decoder(const_cast<std::string &>(video_file_name)),
       video_file_name(video_file_name), object_name(object_name),
       confidence(confidence), interval(interval), success_decoded_frames(0),
-      stop_infer_thread(false) {
+      stop_infer_thread(false), fmtCtx(nullptr), video_stream_index(-1) {
 
-  // 启动独立推理线程
+  if (!initialize()) {
+    throw std::runtime_error("Failed to initialize video processor");
+  }
+
   infer_thread = std::thread([this]() {
     while (!stop_infer_thread) {
       std::unique_lock<std::mutex> lock(infer_mutex);
@@ -67,58 +72,42 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     }
   });
 }
-void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  std::cout << gopId << "," << frames.size() << std::endl;
-  InferenceInput input;
-  input.decoded_frames = std::move(frames);
-  input.object_name = object_name;
-  input.confidence_thresh = confidence;
-  input.gopIdx = gopId;
-  {
-    std::lock_guard<std::mutex> lock(infer_mutex);
-    infer_inputs.push(std::move(input));
-  }
-  infer_cv.notify_all();
-  // decoder任务完成，减一并通知
-  {
-    std::lock_guard<std::mutex> lock(task_mutex);
-    remaining_decode_tasks--;
-  }
-  task_cv.notify_all();
-}
 
-int VideoProcessor::process() {
+bool VideoProcessor::initialize() {
   const char *video_file_path = video_file_name.c_str();
-  AVFormatContext *fmtCtx = nullptr;
   if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
     std::cerr << "Could not open video file: " << video_file_path << std::endl;
-    return -1;
+    return false;
   }
 
   if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
     std::cerr << "Could not get stream info" << std::endl;
     avformat_close_input(&fmtCtx);
-    return -1;
+    fmtCtx = nullptr;
+    return false;
   }
 
-  int videoStream = -1;
   for (unsigned int i = 0; i < fmtCtx->nb_streams; i++) {
     if (fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-      videoStream = i;
+      video_stream_index = static_cast<int>(i);
       break;
     }
   }
 
-  if (videoStream == -1) {
+  if (video_stream_index == -1) {
     std::cerr << "No video stream found" << std::endl;
     avformat_close_input(&fmtCtx);
-    return -1;
+    fmtCtx = nullptr;
+    return false;
   }
 
+  return true;
+}
+
+int VideoProcessor::process() {
   AVPacket *packet = av_packet_alloc();
   if (!packet) {
     std::cerr << "Could not allocate AVPacket" << std::endl;
-    avformat_close_input(&fmtCtx);
     return -1;
   }
 
@@ -130,7 +119,7 @@ int VideoProcessor::process() {
   std::vector<std::vector<AVPacket *>> all_pkts;
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
-    if (packet->stream_index == videoStream) {
+    if (packet->stream_index == video_stream_index) {
       frame_idx++;
       if (frame_idx > 1 && (frame_idx - 1) % interval == 0) {
         hits++;
@@ -150,7 +139,6 @@ int VideoProcessor::process() {
                          [this](std::vector<cv::Mat> frames, int gopId) {
                            this->onDecoded(std::move(frames), gopId);
                          });
-
           {
             std::lock_guard<std::mutex> lock(task_mutex);
             remaining_decode_tasks++;
@@ -182,7 +170,6 @@ int VideoProcessor::process() {
                    [this](std::vector<cv::Mat> frames, int gopId) {
                      this->onDecoded(std::move(frames), gopId);
                    });
-
     {
       std::lock_guard<std::mutex> lock(task_mutex);
       remaining_decode_tasks++;
@@ -200,13 +187,12 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
 
-  // 等待 decoder 所有任务完成
   while (true) {
     std::unique_lock<std::mutex> lock(task_mutex);
     if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
           return remaining_decode_tasks.load() == 0;
         })) {
-      break; // 全部完成
+      break;
     }
     std::cerr << "[Waiting] Remaining decode tasks: "
               << remaining_decode_tasks.load() << std::endl;
@@ -218,7 +204,6 @@ int VideoProcessor::process() {
 
   skipped_frames += pool;
   av_packet_free(&packet);
-  avformat_close_input(&fmtCtx);
   clear_av_packets(pkts);
   delete pkts;
 
@@ -239,17 +224,34 @@ int VideoProcessor::process() {
   return 0;
 }
 
+void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+  std::cout << gopId << "," << frames.size() << std::endl;
+  InferenceInput input;
+  input.decoded_frames = std::move(frames);
+  input.object_name = object_name;
+  input.confidence_thresh = confidence;
+  input.gopIdx = gopId;
+  {
+    std::lock_guard<std::mutex> lock(infer_mutex);
+    infer_inputs.push(std::move(input));
+  }
+  infer_cv.notify_all();
+  {
+    std::lock_guard<std::mutex> lock(task_mutex);
+    remaining_decode_tasks--;
+  }
+  task_cv.notify_all();
+}
+
 void VideoProcessor::add_av_packet_to_list(std::vector<AVPacket *> **packages,
                                            const AVPacket *packet) {
   if (!packet)
     return;
-  if (!*packages) {
+  if (!*packages)
     *packages = new std::vector<AVPacket *>();
-  }
   AVPacket *cloned = av_packet_clone(packet);
-  if (cloned) {
+  if (cloned)
     (*packages)->push_back(cloned);
-  }
 }
 
 std::vector<AVPacket *>
@@ -260,9 +262,8 @@ VideoProcessor::get_packets_for_decoding(std::vector<AVPacket *> *packages,
     return results;
   for (int i = 0; i < last_frame_index && i < packages->size(); i++) {
     AVPacket *pkt = av_packet_clone((*packages)[i]);
-    if (pkt) {
+    if (pkt)
       results.push_back(pkt);
-    }
   }
   return results;
 }

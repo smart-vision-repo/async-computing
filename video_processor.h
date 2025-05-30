@@ -9,6 +9,7 @@
 #include <vector>
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 }
 
 // 声明 VideoProcessor 类
@@ -21,6 +22,7 @@ public:
   int process();
 
 private:
+  bool initialize();
   void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);
@@ -43,6 +45,8 @@ private:
   std::atomic<int> remaining_decode_tasks{0};
   std::mutex task_mutex;
   std::condition_variable task_cv;
+  AVFormatContext *fmtCtx = nullptr;
+  int video_stream_index = -1;
 };
 
 #endif // VIDEO_PROCESSOR_H
