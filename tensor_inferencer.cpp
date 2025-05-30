@@ -88,9 +88,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
     }
   }
 
-  for (const auto &[name, id] : class_name_to_id_) {
-    std::cout << "[CLASS MAP] " << name << " -> " << id << std::endl;
-  }
+  std::cout << "dog -> class_id: " << class_name_to_id_["dog"] << std::endl;
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -106,6 +104,7 @@ TensorInferencer::~TensorInferencer() {
 
 bool TensorInferencer::infer(const std::vector<float> &input,
                              std::vector<float> &output) {
+
   if (inputSize_ == 0 || outputSize_ == 0) {
     std::cerr << "[ERROR] inputSize/outputSize 未初始化" << std::endl;
     return false;
@@ -212,9 +211,9 @@ void TensorInferencer::processOutput(const InferenceInput &input,
 
     float confidence = objectness * max_score;
 
-    std::cout << "[DEBUG] box " << i << ", obj=" << objectness
-              << ", max_cls_score=" << max_score << ", class_id=" << class_id
-              << ", conf=" << confidence << std::endl;
+    // std::cout << "[DEBUG] box " << i << ", obj=" << objectness
+    //           << ", max_cls_score=" << max_score << ", class_id=" << class_id
+    //           << ", conf=" << confidence << std::endl;
     if (confidence < input.confidence_thresh)
       continue;
 
