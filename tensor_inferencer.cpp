@@ -261,122 +261,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   processOutput(input, host_output, raw_img);
   return true;
 }
-void TensorInferencer::processOutput(const InferenceInput &input,
-                                     const std::vector<float> &host_output,
-                                     const cv::Mat &raw_img) {
-  std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
-            << std::endl;
-
-  int num_classes = 80;
-  int box_info_size = 4 + num_classes; // 通常为 84
-  int num_boxes = static_cast<int>(host_output.size() / box_info_size);
-
-  std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
-  std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
-
-  auto it = class_name_to_id_.find(input.object_name);
-  if (it == class_name_to_id_.end()) {
-    std::cerr << "[ERROR] 类别 '" << input.object_name << "' 未找到!"
-              << std::endl;
-    return;
-  }
-  int target_class_id = it->second;
-  std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
-
-  float confidence_threshold = std::max(0.3f, input.confidence_thresh);
-  std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
-
-  std::vector<Detection> detections;
-
-  for (int i = 0; i < num_boxes; ++i) {
-    const float *det = &host_output[i * box_info_size];
-
-    std::vector<float> class_scores(num_classes);
-    float max_score = -1.0f;
-    int best_class_id = -1;
-
-    for (int j = 0; j < num_classes; ++j) {
-      class_scores[j] = det[4 + j]; // 不再应用 sigmoid
-      if (class_scores[j] > max_score) {
-        max_score = class_scores[j];
-        best_class_id = j;
-      }
-    }
-
-    float target_confidence = class_scores[target_class_id];
-
-    if (i < 10 || target_confidence > 0.2f) {
-      std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
-                << best_class_id << "), " << input.object_name
-                << "得分=" << target_confidence << std::endl;
-    }
-
-    if (best_class_id == target_class_id &&
-        target_confidence >= confidence_threshold &&
-        max_score >= confidence_threshold) {
-
-      float cx = det[0], cy = det[1], w = det[2], h = det[3];
-
-      if (cx <= 1.0f && cy <= 1.0f && w <= 1.0f && h <= 1.0f) {
-        cx *= target_w_;
-        cy *= target_h_;
-        w *= target_w_;
-        h *= target_h_;
-      }
-
-      float x1 = std::max(0.0f, cx - w / 2.0f);
-      float y1 = std::max(0.0f, cy - h / 2.0f);
-      float x2 = std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
-      float y2 = std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
-
-      Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
-      detections.push_back(detection);
-
-      std::cout << "[DETECTION] 发现 " << input.object_name
-                << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
-                << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
-                << ")" << std::endl;
-    }
-  }
-
-  std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
-            << input.object_name << std::endl;
-
-  std::vector<Detection> nms_detections = applyNMS(detections, 0.5f);
-  std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
-            << std::endl;
-
-  for (size_t i = 0; i < nms_detections.size(); ++i) {
-    const auto &det = nms_detections[i];
-    saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
-                       input.object_name, input.gopIdx, i);
-  }
-
-  if (nms_detections.empty()) {
-    std::cout << "[INFO] 未检测到目标物体，可能原因:" << std::endl;
-    std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
-              << std::endl;
-    std::cout << "  2. 图像预处理问题" << std::endl;
-    std::cout << "  3. 模型输出格式不匹配" << std::endl;
-  }
-}
-
-float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
-  float x1 = std::max(a.x1, b.x1);
-  float y1 = std::max(a.y1, b.y1);
-  float x2 = std::min(a.x2, b.x2);
-  float y2 = std::min(a.y2, b.y2);
-
-  if (x2 <= x1 || y2 <= y1)
-    return 0.0f;
-
-  float intersection = (x2 - x1) * (y2 - y1);
-  float area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
-  float area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
-  float union_area = area_a + area_b - intersection;
-
-  return intersection / union_area;
-}
 
 // void TensorInferencer::processOutput(const InferenceInput &input,
 //                                      const std::vector<float> &host_output,
@@ -604,3 +488,107 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
 //     std::cerr << "[ERROR] ✗ 保存失败: " << filename.str() << std::endl;
 //   }
 // }
+
+void TensorInferencer::processOutput(const InferenceInput &input,
+                                     const std::vector<float> &host_output,
+                                     const cv::Mat &raw_img) {
+  std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
+            << std::endl;
+
+  int num_classes = 80;
+  int box_info_size = 4 + num_classes;
+  int num_boxes = static_cast<int>(host_output.size() / box_info_size);
+
+  std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
+  std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
+
+  auto it = class_name_to_id_.find(input.object_name);
+  if (it == class_name_to_id_.end()) {
+    std::cerr << "[ERROR] 类别 '" << input.object_name << "' 未找到!"
+              << std::endl;
+    return;
+  }
+  int target_class_id = it->second;
+  std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
+
+  float confidence_threshold = std::max(0.3f, input.confidence_thresh);
+  std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
+
+  std::vector<Detection> detections;
+
+  for (int i = 0; i < num_boxes; ++i) {
+    const float *det = &host_output[i * box_info_size];
+
+    std::vector<float> class_scores(num_classes);
+    float max_score = -1.0f;
+    int best_class_id = -1;
+
+    for (int j = 0; j < num_classes; ++j) {
+      float raw_score = det[4 + j];
+      float prob = 1.0f / (1.0f + std::exp(-raw_score)); // sigmoid
+      class_scores[j] = prob;
+
+      if (prob > max_score) {
+        max_score = prob;
+        best_class_id = j;
+      }
+    }
+
+    float target_confidence = class_scores[target_class_id];
+
+    if (i < 10 || target_confidence > 0.2f) {
+      std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
+                << best_class_id << "), " << input.object_name
+                << "得分=" << target_confidence << std::endl;
+    }
+
+    if (best_class_id == target_class_id &&
+        target_confidence >= confidence_threshold &&
+        max_score >= confidence_threshold) {
+
+      float cx = det[0], cy = det[1], w = det[2], h = det[3];
+
+      if (cx <= 1.0f && cy <= 1.0f && w <= 1.0f && h <= 1.0f) {
+        cx *= target_w_;
+        cy *= target_h_;
+        w *= target_w_;
+        h *= target_h_;
+      }
+
+      float x1 = std::max(0.0f, cx - w / 2.0f);
+      float y1 = std::max(0.0f, cy - h / 2.0f);
+      float x2 = std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
+      float y2 = std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
+
+      Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
+      detections.push_back(detection);
+
+      std::cout << "[DETECTION] 发现 " << input.object_name
+                << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
+                << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
+                << ")" << std::endl;
+    }
+  }
+
+  std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
+            << input.object_name << std::endl;
+
+  std::vector<Detection> nms_detections = applyNMS(detections, 0.5f);
+  std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
+            << std::endl;
+
+  for (size_t i = 0; i < nms_detections.size(); ++i) {
+    const auto &det = nms_detections[i];
+    saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
+                       input.object_name, input.gopIdx, i);
+  }
+
+  if (nms_detections.empty()) {
+    std::cout << "[INFO] 未检测到目标物体，可能原因:" << std::endl;
+    std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
+              << std::endl;
+    std::cout << "  2. 图像预处理问题" << std::endl;
+    std::cout << "  3. 模型输出格式不匹配" << std::endl;
+    std::cout << "  4. 模型输出为 logits，未加 sigmoid 激活" << std::endl;
+  }
+}
