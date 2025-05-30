@@ -3,7 +3,7 @@
 #include <iostream>
 
 int main() {
-  TensorInferencer infer("yolov8n.engine");
+  TensorInferencer infer("/opt/models/yolo/yolov8n.engine");
   std::vector<float> input(1 * 3 * 640 * 640, 0.0f);
   std::vector<float> output;
 
