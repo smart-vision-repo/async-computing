@@ -262,6 +262,23 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   return true;
 }
 
+float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
+  float x1 = std::max(a.x1, b.x1);
+  float y1 = std::max(a.y1, b.y1);
+  float x2 = std::min(a.x2, b.x2);
+  float y2 = std::min(a.y2, b.y2);
+
+  if (x2 <= x1 || y2 <= y1)
+    return 0.0f;
+
+  float intersection = (x2 - x1) * (y2 - y1);
+  float area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
+  float area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
+  float union_area = area_a + area_b - intersection;
+
+  return intersection / union_area;
+}
+
 // void TensorInferencer::processOutput(const InferenceInput &input,
 //                                      const std::vector<float> &host_output,
 //                                      const cv::Mat &raw_img) {
