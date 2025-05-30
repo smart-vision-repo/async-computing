@@ -598,8 +598,9 @@ void TensorInferencer::processOutput(const InferenceInput &input,
 
   for (size_t i = 0; i < nms_detections.size(); ++i) {
     const auto &det = nms_detections[i];
-    saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
-                       input.object_name, input.gopIdx, i);
+    // saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2,
+    // det.confidence,
+    //                    input.object_name, input.gopIdx, i);
   }
 
   if (nms_detections.empty()) {
