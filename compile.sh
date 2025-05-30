@@ -35,7 +35,6 @@ check_gpp() {
 compile() {
     local output_name="app_tensor_inferencer"
     local src_files=(
-        inference_input.hpp
         main.cpp
         video_processor.cpp
         packet_decoder.cpp
