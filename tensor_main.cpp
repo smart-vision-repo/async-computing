@@ -4,8 +4,9 @@
 #include <opencv2/opencv.hpp>
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::cerr << "用法: " << argv[0] << " <图片路径>" << std::endl;
+  if (argc < 2 || argc > 3) {
+    std::cerr << "用法: " << argv[0] << " <图片路径> [confidence_thresh]"
+              << std::endl;
     return 1;
   }
 
@@ -14,33 +15,32 @@ int main(int argc, char **argv) {
   const char *image_path = argv[1];
 
   if (!engine_env || !names_env) {
-    std::cerr << "环境变量 YOLO_ENGINE_NAME 和 YOLO_COCO_NAMES 必须设置"
+    std::cerr << "[ERROR] 环境变量 YOLO_ENGINE_NAME 和 YOLO_COCO_NAMES 必须设置"
               << std::endl;
     return 1;
   }
 
-  // 读取图像
+  float confidence_thresh = 0.3f;
+  if (argc == 3) {
+    confidence_thresh = std::stof(argv[2]);
+  }
+
+  std::cout << "[INFO] 使用置信度阈值: " << confidence_thresh << std::endl;
+
   cv::Mat image = cv::imread(image_path);
   if (image.empty()) {
-    std::cerr << "无法读取图片: " << image_path << std::endl;
+    std::cerr << "[ERROR] 无法读取图片: " << image_path << std::endl;
     return 1;
   }
 
-  std::cout << "[INFO] 加载图片成功: " << image.cols << "x" << image.rows
-            << std::endl;
+  TensorInferencer inferencer(1080, 1920); // 图像将统一缩放为 640x640
 
-  // 构造推理器（目标输入尺寸设为 640x640）
-  TensorInferencer inferencer(1080,
-                              1920); // 实际输入尺寸可以忽略，640x640 是固定的
-
-  // 构造推理输入
   InferenceInput input;
   input.decoded_frames.push_back(image);
   input.object_name = "dog";
-  input.confidence_thresh = 0.6f;
+  input.confidence_thresh = confidence_thresh;
   input.gopIdx = 0;
 
-  // 执行推理
   bool success = inferencer.infer(input);
   if (!success) {
     std::cerr << "[ERROR] 推理失败" << std::endl;
