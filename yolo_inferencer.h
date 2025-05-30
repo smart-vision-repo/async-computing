@@ -1,8 +1,8 @@
 #pragma once
 
+#include "inference_input.hpp"
 #include <atomic>
 #include <condition_variable>
-#include <inference_input.hpp>
 #include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/dnn.hpp>
