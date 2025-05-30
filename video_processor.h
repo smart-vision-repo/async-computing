@@ -2,8 +2,8 @@
 #define VIDEO_PROCESSOR_H
 
 #include "packet_decoder.h"
-#include "yolo_inferencer.h"
 #include "tensor_inferencer.hpp"
+#include "yolo_inferencer.h"
 #include <string>
 #include <vector>
 extern "C" {
@@ -33,7 +33,7 @@ private:
   float confidence;
   int interval;
   int success_decoded_frames;
-  std::queue<YoloInferencer::InferenceInput> infer_inputs;
+  std::queue<InferenceInput> infer_inputs;
   std::mutex infer_mutex;
   std::condition_variable infer_cv;
   std::thread infer_thread;
