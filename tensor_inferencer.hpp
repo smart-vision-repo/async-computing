@@ -16,6 +16,8 @@ public:
   bool infer(const InferenceInput &input);
 
 private:
+  // 检测结果保存路径
+  std::string image_output_path_;
   // TensorRT objects
   nvinfer1::IRuntime *runtime_ = nullptr;
   nvinfer1::ICudaEngine *engine_ = nullptr;

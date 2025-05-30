@@ -32,6 +32,10 @@ static int roundToNearestMultiple(int val, int base = 32) {
 }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width) {
+  const char *image_path_env = std::getenv("YOLO_IMAGE_PATH");
+  if (image_path_env) {
+    image_output_path_ = image_path_env;
+  }
   target_w_ = roundToNearestMultiple(video_width, 32);
   target_h_ = roundToNearestMultiple(video_height, 32);
 
@@ -145,11 +149,11 @@ bool TensorInferencer::infer(const InferenceInput &input) {
         outDims.d[i] = 1;
       outputSize_ *= outDims.d[i];
     }
-    // std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
-    // if (outputSize_ % 85 != 0) {
-    //   std::cerr << "[WARNING] Output size " << outputSize_
-    //             << " is not divisible by 85." << std::endl;
-    // }
+    std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+    if (outputSize_ % 85 != 0) {
+      std::cerr << "[WARNING] Output size " << outputSize_
+                << " is not divisible by 85." << std::endl;
+    }
   }
 
   if (inputDevice_)
@@ -163,8 +167,8 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
 
-  // std::cout << "[DEBUG] inputSize_: " << inputSize_ << ", outputSize_: " <<
-  // outputSize_ << std::endl;
+  std::cout << "[DEBUG] inputSize_: " << inputSize_
+            << ", outputSize_: " << outputSize_ << std::endl;
 
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
@@ -180,6 +184,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output) {
+  const bool save_image = !image_output_path_.empty();
   int box_step = 85;
   int num_classes = 80;
   int num_boxes = static_cast<int>(host_output.size() / box_step);
@@ -215,7 +220,27 @@ void TensorInferencer::processOutput(const InferenceInput &input,
       std::cout << "[YOLO] GOP: " << input.gopIdx
                 << ", Confidence: " << confidence
                 << ", Class: " << input.object_name << ", Box: (" << x1 << ","
-                << y1 << "," << x2 << "," << y2 << ")\n";
+                << y1 << "," << x2 << "," << y2
+                << ")
+                   ";
+
+          if (save_image && !input.decoded_frames.empty()) {
+        cv::Mat vis_img = input.decoded_frames[0].clone();
+        int orig_w = vis_img.cols, orig_h = vis_img.rows;
+
+        // Rescale box coordinates back to original image size
+        float scale_x = static_cast<float>(orig_w) / target_w_;
+        float scale_y = static_cast<float>(orig_h) / target_h_;
+        cv::Rect box_rect(
+            static_cast<int>(x1 * scale_x), static_cast<int>(y1 * scale_y),
+            static_cast<int>(w * scale_x), static_cast<int>(h * scale_y));
+        cv::rectangle(vis_img, box_rect, cv::Scalar(0, 255, 0), 2);
+
+        char filename[512];
+        snprintf(filename, sizeof(filename), "%s/detection_gop%d.jpg",
+                 image_output_path_.c_str(), input.gopIdx);
+        cv::imwrite(filename, vis_img);
+      }
     }
   }
 }
