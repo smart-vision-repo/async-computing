@@ -2,9 +2,11 @@
 #define VIDEO_PROCESSOR_H
 #include "inference_input.hpp"
 #include "packet_decoder.h"
+#include "tensor_inferencer.h"
 #include "yolo_inferencer.h"
 #include <atomic>
 #include <condition_variable>
+#include <optional>
 #include <string>
 #include <vector>
 extern "C" {
@@ -42,6 +44,8 @@ private:
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
   YoloInferencer inferencer;
+  std::optional<TensorInferencer>
+      tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
   std::mutex task_mutex;
   std::condition_variable task_cv;

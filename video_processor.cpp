@@ -104,6 +104,10 @@ bool VideoProcessor::initialize() {
   AVCodecParameters *codec_params = video_stream->codecpar;
   frame_width = codec_params->width;
   frame_heigh = codec_params->height;
+  if (frame_heigh == 0 || frame_width == 0) {
+    return false;
+  }
+  tensor_inferencer.emplace(frame_heigh, frame_width);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
