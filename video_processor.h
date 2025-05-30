@@ -41,7 +41,7 @@ private:
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
   YoloInferencer yolo_inferencer;
-  TensorInferencer tensor_inferencer;
+  std::optional<TensorInferencer> tensor_inferencer;
   AVFormatContext *fmtCtx = nullptr;
   int frame_heigh = 0;
   int frame_width = 0;

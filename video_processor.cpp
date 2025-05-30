@@ -225,7 +225,7 @@ int VideoProcessor::initialize() {
   AVCodecParameters *codecpar = fmtCtx->streams[videoStream]->codecpar;
   frame_width = codecpar->width;
   frame_heigh = codecpar->height;
-  tensor_inferencer = TensorInferencer(frame_heigh, frame_width);
+  tensor_inferencer.emplace(frame_heigh, frame_width);
   std::cout << "Video Width: " << frame_width << ", Height: " << frame_heigh
             << std::endl;
   return 0;
