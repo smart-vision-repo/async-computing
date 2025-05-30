@@ -562,7 +562,7 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
            << detection_idx << "_conf" << static_cast<int>(confidence * 100)
            << ".jpg";
 
-  bool success = cv::imwrite(filename.str(), img_to_save);
+  bool success = cv::imwrite(filename.str(), raw_img);
   if (success) {
     std::cout << "[SAVE] ✓ 图片已保存: " << filename.str() << std::endl;
   } else {
