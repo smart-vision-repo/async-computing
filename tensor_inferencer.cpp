@@ -261,19 +261,14 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   processOutput(input, host_output, raw_img);
   return true;
 }
-
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output,
                                      const cv::Mat &raw_img) {
   std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
             << std::endl;
 
-  // YOLOv8 输出格式检查
-  // 对于检测任务，通常是 [1, 84, 8400] 或转置后的 [1, 8400, 84]
-  // 84 = 4(坐标) + 80(COCO类别)
-
   int num_classes = 80;
-  int box_info_size = 4 + num_classes; // 84
+  int box_info_size = 4 + num_classes; // 通常为 84
   int num_boxes = static_cast<int>(host_output.size() / box_info_size);
 
   std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
@@ -288,79 +283,53 @@ void TensorInferencer::processOutput(const InferenceInput &input,
   int target_class_id = it->second;
   std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
 
-  float confidence_threshold =
-      std::max(0.3f, input.confidence_thresh); // 提高最低阈值到0.3
+  float confidence_threshold = std::max(0.3f, input.confidence_thresh);
   std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
 
-  std::vector<Detection> detections; // 用于存储所有有效检测
+  std::vector<Detection> detections;
 
   for (int i = 0; i < num_boxes; ++i) {
     const float *det = &host_output[i * box_info_size];
 
-    // YOLOv8的原始输出需要应用sigmoid激活函数
-    // 坐标: det[0-3]
-    // 类别概率: det[4-83]
-
-    // 应用sigmoid到类别得分
     std::vector<float> class_scores(num_classes);
-    float max_score = 0.0f;
+    float max_score = -1.0f;
     int best_class_id = -1;
 
     for (int j = 0; j < num_classes; ++j) {
-      // 应用sigmoid激活函数：1 / (1 + exp(-x))
-      float raw_score = det[4 + j];
-      class_scores[j] = 1.0f / (1.0f + std::exp(-raw_score));
-
+      class_scores[j] = det[4 + j]; // 不再应用 sigmoid
       if (class_scores[j] > max_score) {
         max_score = class_scores[j];
         best_class_id = j;
       }
     }
 
-    // 获取目标类别的置信度
     float target_confidence = class_scores[target_class_id];
 
-    // 调试输出（只打印前几个和高置信度的）
-    if (i < 10 || max_score > 0.1f) {
+    if (i < 10 || target_confidence > 0.2f) {
       std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
-                << best_class_id << ")"
-                << ", " << input.object_name << "得分=" << target_confidence
-                << std::endl;
+                << best_class_id << "), " << input.object_name
+                << "得分=" << target_confidence << std::endl;
     }
 
-    // 检查是否检测到目标类别
-    if (best_class_id == target_class_id && max_score >= confidence_threshold) {
+    if (best_class_id == target_class_id &&
+        target_confidence >= confidence_threshold &&
+        max_score >= confidence_threshold) {
+
       float cx = det[0], cy = det[1], w = det[2], h = det[3];
 
-      // YOLOv8输出通常是相对于输入尺寸的坐标
-      // 如果坐标值 > 1，说明已经是像素坐标；如果 <= 1，说明是归一化坐标
       if (cx <= 1.0f && cy <= 1.0f && w <= 1.0f && h <= 1.0f) {
-        // 归一化坐标，转换为像素坐标
         cx *= target_w_;
         cy *= target_h_;
         w *= target_w_;
         h *= target_h_;
       }
 
-      float x1 = cx - w / 2.0f;
-      float y1 = cy - h / 2.0f;
-      float x2 = cx + w / 2.0f;
-      float y2 = cy + h / 2.0f;
+      float x1 = std::max(0.0f, cx - w / 2.0f);
+      float y1 = std::max(0.0f, cy - h / 2.0f);
+      float x2 = std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
+      float y2 = std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
 
-      // 边界检查
-      x1 = std::max(0.0f, std::min(x1, static_cast<float>(target_w_ - 1)));
-      y1 = std::max(0.0f, std::min(y1, static_cast<float>(target_h_ - 1)));
-      x2 = std::max(x1, std::min(x2, static_cast<float>(target_w_ - 1)));
-      y2 = std::max(y1, std::min(y2, static_cast<float>(target_h_ - 1)));
-
-      // 添加到检测结果
-      Detection detection;
-      detection.x1 = x1;
-      detection.y1 = y1;
-      detection.x2 = x2;
-      detection.y2 = y2;
-      detection.confidence = max_score;
-      detection.class_id = best_class_id;
+      Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
       detections.push_back(detection);
 
       std::cout << "[DETECTION] 发现 " << input.object_name
@@ -373,14 +342,10 @@ void TensorInferencer::processOutput(const InferenceInput &input,
   std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
             << input.object_name << std::endl;
 
-  // 应用非极大值抑制(NMS)去除重复检测
-  std::vector<Detection> nms_detections =
-      applyNMS(detections, 0.5f); // IoU阈值0.5
-
+  std::vector<Detection> nms_detections = applyNMS(detections, 0.5f);
   std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
             << std::endl;
 
-  // 只保存NMS后的结果
   for (size_t i = 0; i < nms_detections.size(); ++i) {
     const auto &det = nms_detections[i];
     saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
@@ -393,7 +358,6 @@ void TensorInferencer::processOutput(const InferenceInput &input,
               << std::endl;
     std::cout << "  2. 图像预处理问题" << std::endl;
     std::cout << "  3. 模型输出格式不匹配" << std::endl;
-    std::cout << "  4. 需要应用sigmoid激活函数" << std::endl;
   }
 }
 
