@@ -28,9 +28,9 @@ static std::vector<char> readEngineFile(const std::string &enginePath) {
   return engineData;
 }
 
-static int roundToNearestMultiple(int val, int base = 32) {
-  return ((val + base / 2) / base) * base;
-}
+// static int roundToNearestMultiple(int val, int base = 32) {
+//   return ((val + base / 2) / base) * base;
+// }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width) {
   // target_w_ = roundToNearestMultiple(video_width, 32);
@@ -88,9 +88,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
     }
   }
 
-  std::cout << "[ENV] YOLO_IMAGE_PATH: " << image_output_path_ << std::endl;
-  std::cout << "[ENV] Looking for object name: " << input.object_name
-            << std::endl;
   for (const auto &[name, id] : class_name_to_id_) {
     std::cout << "[CLASS MAP] " << name << " -> " << id << std::endl;
   }
@@ -144,7 +141,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       for (int x = 0; x < w; ++x)
         input_data[i * h * w + y * w + x] = chw_input.at<cv::Vec3f>(y, x)[i];
 
-  Dims inputDims{4, {1, 3, h, w}};
+  // Dims inputDims{4, {1, 3, h, w}};
   // if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
   // std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
   // return false;
