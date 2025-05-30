@@ -56,14 +56,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
 
   inputIndex_ = engine_->getBindingIndex("images");
   outputIndex_ = engine_->getBindingIndex(engine_->getBindingName(1));
-
-  // Attempt to infer output size once
-  Dims outDims = engine_->getBindingDimensions(outputIndex_);
-  outputSize_ = 1;
-  for (int i = 0; i < outDims.nbDims; ++i)
-    outputSize_ *= outDims.d[i] > 0 ? outDims.d[i] : 1;
-  std::cout << "[INFO] Initial output size estimated: " << outputSize_
-            << std::endl;
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -143,39 +135,57 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   if (outputSize_ == 0) {
     Dims outDims = context_->getBindingDimensions(outputIndex_);
     outputSize_ = 1;
-    for (int i = 0; i < outDims.nbDims; ++i)
-      outputSize_ *= outDims.d[i] > 0 ? outDims.d[i] : 1;
+    for (int i = 0; i < outDims.nbDims; ++i) {
+      if (outDims.d[i] <= 0) {
+        std::cerr << "[WARNING] Output dimension " << i << " is "
+                  << outDims.d[i] << ", replacing with 1." << std::endl;
+        outDims.d[i] = 1; // fallback to 1 to avoid zero-size allocation
+      }
+      outputSize_ *= outDims.d[i];
+    }
     std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
   }
+  outputSize_ *= outDims.d[i];
+}
+std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
 
-  // Allocate GPU memory
-  if (inputDevice_)
-    cudaFree(inputDevice_);
-  if (outputDevice_)
-    cudaFree(outputDevice_);
-  cudaMalloc(reinterpret_cast<void **>(&inputDevice_),
-             inputSize_ * sizeof(float));
-  cudaMalloc(reinterpret_cast<void **>(&outputDevice_),
-             outputSize_ * sizeof(float));
+// Optional check: for YOLO-like models
+if (outputSize_ % 85 != 0) {
+  std::cerr << "[WARNING] Output size " << outputSize_
+            << " is not divisible by 85. This may indicate incorrect output "
+               "dimensions."
+            << std::endl;
+}
+}
 
-  bindings_[inputIndex_] = inputDevice_;
-  bindings_[outputIndex_] = outputDevice_;
+// Allocate GPU memory
+if (inputDevice_)
+  cudaFree(inputDevice_);
+if (outputDevice_)
+  cudaFree(outputDevice_);
+cudaMalloc(reinterpret_cast<void **>(&inputDevice_),
+           inputSize_ * sizeof(float));
+cudaMalloc(reinterpret_cast<void **>(&outputDevice_),
+           outputSize_ * sizeof(float));
 
-  std::cout << "[DEBUG] inputSize_: " << inputSize_
-            << ", outputSize_: " << outputSize_ << std::endl;
+bindings_[inputIndex_] = inputDevice_;
+bindings_[outputIndex_] = outputDevice_;
 
-  // Run inference
-  cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
-             cudaMemcpyHostToDevice);
-  if (!context_->enqueueV2(bindings_, 0, nullptr))
-    return false;
+std::cout << "[DEBUG] inputSize_: " << inputSize_
+          << ", outputSize_: " << outputSize_ << std::endl;
 
-  std::vector<float> host_output(outputSize_);
-  cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
-             cudaMemcpyDeviceToHost);
+// Run inference
+cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
+           cudaMemcpyHostToDevice);
+if (!context_->enqueueV2(bindings_, 0, nullptr))
+  return false;
 
-  processOutput(input, host_output);
-  return true;
+std::vector<float> host_output(outputSize_);
+cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
+           cudaMemcpyDeviceToHost);
+
+processOutput(input, host_output);
+return true;
 }
 
 void TensorInferencer::processOutput(const InferenceInput &input,
