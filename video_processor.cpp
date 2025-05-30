@@ -58,7 +58,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
       });
 
       while (!infer_inputs.empty()) {
-        YoloInferencer::InferenceInput input = std::move(infer_inputs.front());
+        InferenceInput input = std::move(infer_inputs.front());
         infer_inputs.pop();
         lock.unlock();
         inferencer.infer(input);
@@ -70,7 +70,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
-  YoloInferencer::InferenceInput input;
+  InferenceInput input;
   input.decoded_frames = std::move(frames);
   input.object_name = object_name;
   input.confidence_thresh = confidence;
