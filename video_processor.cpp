@@ -67,7 +67,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
         lock.unlock();
         // inferencer.infer(input);
         if (tensor_inferencer) {
-          tensor_inferencer.value().infer(input);
+          tensor_inferencer->infer(input);
         }
         lock.lock();
       }
