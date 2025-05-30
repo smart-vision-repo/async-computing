@@ -29,3 +29,19 @@
     sudo make install
     sudo ldconfig
     ``` 
+
+### TensorRT
+
+```sh
+wget https://developer.nvidia.com/downloads/compute/machine-learning/tensorrt/secure/8.6.1/local_repos/nv-tensorrt-local-repo-ubuntu2204-8.6.1-cuda-12.0_1.0-1_amd64.deb
+
+sudo dpkg -i nv-tensorrt-local-repo-ubuntu2204-8.6.1-cuda-12.0_1.0-1_amd64.deb
+sudo cp /var/nv-tensorrt-local-repo-*/nv-tensorrt-*.key /usr/share/keyrings/
+
+sudo apt update
+sudo apt install tensorrt
+sudo apt install libnvinfer-dev libnvinfer8
+sudo apt install libnvonnxparsers-dev libnvonnxparsers8
+sudo apt install libnvinfer-plugin-dev libnvinfer-plugin8
+
+```
