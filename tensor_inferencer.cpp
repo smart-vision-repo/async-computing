@@ -33,8 +33,8 @@ static int roundToNearestMultiple(int val, int base = 32) {
 }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width) {
-  target_w_ = roundToNearestMultiple(video_width, 32);
-  target_h_ = roundToNearestMultiple(video_height, 32);
+  // target_w_ = roundToNearestMultiple(video_width, 32);
+  // target_h_ = roundToNearestMultiple(video_height, 32);
 
   std::cout << "[INFO] Adjusted input size: " << target_w_ << "x" << target_h_
             << " (32-aligned)" << std::endl;
@@ -145,10 +145,10 @@ bool TensorInferencer::infer(const InferenceInput &input) {
         input_data[i * h * w + y * w + x] = chw_input.at<cv::Vec3f>(y, x)[i];
 
   Dims inputDims{4, {1, 3, h, w}};
-  if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
-    std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
-    return false;
-  }
+  // if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
+  // std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
+  // return false;
+  // }
   if (!context_->allInputDimensionsSpecified()) {
     std::cerr << "[ERROR] Not all input dimensions specified after setting."
               << std::endl;
@@ -214,6 +214,10 @@ void TensorInferencer::processOutput(const InferenceInput &input,
     }
 
     float confidence = objectness * max_score;
+
+    std::cout << "[DEBUG] box " << i << ", obj=" << objectness
+              << ", max_cls_score=" << max_score << ", class_id=" << class_id
+              << ", conf=" << confidence << std::endl;
     if (confidence < input.confidence_thresh)
       continue;
 

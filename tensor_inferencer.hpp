@@ -33,8 +33,8 @@ private:
   size_t outputSize_ = 0;
 
   // Input image dimensions (aligned)
-  int target_w_ = 0;
-  int target_h_ = 0;
+  int target_w_ = 640;
+  int target_h_ = 640;
 
   // Class name to ID mapping (loaded from YOLO_COCO_NAMES)
   std::unordered_map<std::string, int> class_name_to_id_;
