@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <inference_input.hpp>
 #include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/dnn.hpp>
@@ -14,13 +15,6 @@
 
 class YoloInferencer {
 public:
-  struct InferenceInput {
-    std::vector<cv::Mat> decoded_frames;
-    std::string object_name;
-    float confidence_thresh;
-    int gopIdx;
-  };
-
   YoloInferencer();
   ~YoloInferencer();
 

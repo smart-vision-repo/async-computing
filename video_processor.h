@@ -3,6 +3,7 @@
 
 #include "packet_decoder.h"
 #include "yolo_inferencer.h"
+#include "tensor_inferencer.hpp"
 #include <string>
 #include <vector>
 extern "C" {
@@ -37,7 +38,8 @@ private:
   std::condition_variable infer_cv;
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
-  YoloInferencer inferencer;
+  YoloInferencer yolo_inferencer;
+  TensorInferencer tensor_inferencer;
 };
 
 #endif // VIDEO_PROCESSOR_H
