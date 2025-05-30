@@ -64,6 +64,18 @@ bool TensorInferencer::infer(const std::vector<float> &input,
   if (input.size() != inputSize_)
     return false;
   output.resize(outputSize_);
+
+  // 显式设置动态输入维度
+  Dims inputDims = engine_->getBindingDimensions(inputIndex_);
+  if (inputDims.d[0] == -1) {
+    // 假设输入为 [batch, 3, 640, 640]
+    inputDims.d[0] = 1;
+    inputDims.d[1] = 3;
+    inputDims.d[2] = 640;
+    inputDims.d[3] = 640;
+    context_->setBindingDimensions(inputIndex_, inputDims);
+  }
+
   cudaMemcpy(inputDevice_, input.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
   context_->enqueueV2(bindings_, 0, nullptr);
