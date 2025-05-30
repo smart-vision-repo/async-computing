@@ -56,6 +56,9 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
 
   inputIndex_ = engine_->getBindingIndex("images");
   outputIndex_ = engine_->getBindingIndex(engine_->getBindingName(1));
+
+  for (int i = 0; i < 2; ++i)
+    bindings_[i] = nullptr;
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -73,6 +76,14 @@ bool TensorInferencer::infer(const std::vector<float> &input,
                              std::vector<float> &output) {
   if (inputSize_ == 0 || outputSize_ == 0) {
     std::cerr << "[ERROR] inputSize/outputSize 未初始化" << std::endl;
+    return false;
+  }
+  if (!inputDevice_ || !outputDevice_) {
+    std::cerr << "[FATAL] GPU buffers not allocated!" << std::endl;
+    return false;
+  }
+  if (!bindings_[inputIndex_] || !bindings_[outputIndex_]) {
+    std::cerr << "[FATAL] Binding pointers not set!" << std::endl;
     return false;
   }
   if (input.size() != inputSize_)
@@ -155,8 +166,10 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
-  if (!context_->enqueueV2(bindings_, 0, nullptr))
+  if (!context_->enqueueV2(bindings_, 0, nullptr)) {
+    std::cerr << "[ERROR] Failed to enqueue inference." << std::endl;
     return false;
+  }
 
   std::vector<float> host_output(outputSize_);
   cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),

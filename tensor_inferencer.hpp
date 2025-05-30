@@ -16,19 +16,21 @@ public:
   bool infer(const InferenceInput &input);
 
 private:
-  nvinfer1::IRuntime *runtime_{nullptr};
-  nvinfer1::ICudaEngine *engine_{nullptr};
-  nvinfer1::IExecutionContext *context_{nullptr};
-  void *bindings_[2];
-  int inputIndex_, outputIndex_;
-  float *inputDevice_{nullptr};
-  float *outputDevice_{nullptr};
-  size_t inputSize_{0};
-  size_t outputSize_{8400 * 85}; // 默认 YOLOv8 输出尺寸
-  void processOutput(const InferenceInput &input,
-                     const std::vector<float> &host_output);
+  nvinfer1::IRuntime *runtime_ = nullptr;
+  nvinfer1::ICudaEngine *engine_ = nullptr;
+  nvinfer1::IExecutionContext *context_ = nullptr;
 
-  // 新增
-  int target_h_ = 0;
+  void *inputDevice_ = nullptr;
+  void *outputDevice_ = nullptr;
+  void *bindings_[2] = {nullptr, nullptr};
+
+  int inputIndex_ = -1;
+  int outputIndex_ = -1;
+  size_t inputSize_ = 0;
+  size_t outputSize_ = 0;
+
   int target_w_ = 0;
+  int target_h_ = 0;
+
+  void processOutput(const InferenceInput &, const std::vector<float> &);
 };
