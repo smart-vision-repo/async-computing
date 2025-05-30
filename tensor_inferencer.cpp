@@ -265,16 +265,16 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output,
                                      const cv::Mat &raw_img) {
-  std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
-            << std::endl;
+  // std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
+  // << std::endl;
 
   // YOLOv8 输出格式: [cx, cy, w, h, class0, class1, ..., class79]
   int box_step = 84; // 4 + 80 = 84
   int num_classes = 80;
   int num_boxes = static_cast<int>(host_output.size() / box_step);
 
-  std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
-  std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
+  // std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
+  // std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
 
   auto it = class_name_to_id_.find(input.object_name);
   if (it == class_name_to_id_.end()) {
@@ -283,12 +283,13 @@ void TensorInferencer::processOutput(const InferenceInput &input,
     return;
   }
   int target_class_id = it->second;
-  std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
+  // std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
 
   int detections_found = 0;
   float confidence_threshold =
       std::max(0.1f, input.confidence_thresh); // 至少0.1的阈值
-  std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
+  // std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold <<
+  // std::endl;
 
   for (int i = 0; i < num_boxes; ++i) {
     const float *det = &host_output[i * box_step];
@@ -309,12 +310,13 @@ void TensorInferencer::processOutput(const InferenceInput &input,
     float dog_score = det[4 + target_class_id];
 
     // 打印前几个框的详细信息
-    if (i < 5 || max_score > 0.05f || dog_score > 0.05f) {
-      std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
-                << best_class_id << "), dog得分=" << dog_score << ", 坐标=("
-                << det[0] << "," << det[1] << "," << det[2] << "," << det[3]
-                << ")" << std::endl;
-    }
+    // if (i < 5 || max_score > 0.05f || dog_score > 0.05f) {
+    //   std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << "
+    //   (类别"
+    //             << best_class_id << "), dog得分=" << dog_score << ", 坐标=("
+    //             << det[0] << "," << det[1] << "," << det[2] << "," << det[3]
+    //             << ")" << std::endl;
+    // }
 
     // 检查是否检测到dog
     if (best_class_id == target_class_id && max_score >= confidence_threshold) {
