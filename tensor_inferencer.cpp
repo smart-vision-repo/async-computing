@@ -191,7 +191,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
   int c = 3, h = target_h_, w = target_w_;
   inputSize_ = static_cast<size_t>(c * h * w);
-  std::cout << "[INFER] 输入数据大小: " << inputSize_ << std::endl;
+  // std::cout << "[INFER] 输入数据大小: " << inputSize_ << std::endl;
 
   cv::Mat chw_input;
   img.convertTo(chw_input, CV_32FC3, 1.0 / 255.0);
@@ -203,7 +203,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       for (int x = 0; x < w; ++x)
         input_data[i * h * w + y * w + x] = chw_input.at<cv::Vec3f>(y, x)[i];
 
-  std::cout << "[INFER] 图像预处理完成" << std::endl;
+  // std::cout << "[INFER] 图像预处理完成" << std::endl;
 
   // 设置动态输入尺寸（如果需要）
   Dims inputDims{4, {1, 3, h, w}};
@@ -225,7 +225,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
         outDims.d[i] = 1;
       outputSize_ *= outDims.d[i];
     }
-    std::cout << "[INFER] 计算输出大小: " << outputSize_ << std::endl;
+    // std::cout << "[INFER] 计算输出大小: " << outputSize_ << std::endl;
   }
 
   // 分配GPU内存
@@ -240,24 +240,24 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
 
-  std::cout << "[INFER] GPU内存分配完成" << std::endl;
+  // std::cout << "[INFER] GPU内存分配完成" << std::endl;
 
   // 执行推理
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
 
-  std::cout << "[INFER] 开始执行推理..." << std::endl;
+  // std::cout << "[INFER] 开始执行推理..." << std::endl;
   if (!context_->enqueueV2(bindings_, 0, nullptr)) {
-    std::cerr << "[ERROR] 推理执行失败" << std::endl;
+    // std::cerr << "[ERROR] 推理执行失败" << std::endl;
     return false;
   }
-  std::cout << "[INFER] 推理执行完成" << std::endl;
+  // std::cout << "[INFER] 推理执行完成" << std::endl;
 
   std::vector<float> host_output(outputSize_);
   cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
              cudaMemcpyDeviceToHost);
 
-  std::cout << "[INFER] 输出数据拷贝完成，开始处理结果" << std::endl;
+  // std::cout << "[INFER] 输出数据拷贝完成，开始处理结果" << std::endl;
   processOutput(input, host_output, raw_img);
   return true;
 }
@@ -509,15 +509,15 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output,
                                      const cv::Mat &raw_img) {
-  std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
-            << std::endl;
+  // std::cout << "[OUTPUT] 开始处理输出，数据大小: " << host_output.size()
+  //           << std::endl;
 
   int num_classes = 80;
   int box_info_size = 4 + num_classes;
   int num_boxes = static_cast<int>(host_output.size() / box_info_size);
 
-  std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
-  std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
+  // std::cout << "[OUTPUT] 检测框数量: " << num_boxes << std::endl;
+  // std::cout << "[OUTPUT] 寻找目标: " << input.object_name << std::endl;
 
   auto it = class_name_to_id_.find(input.object_name);
   if (it == class_name_to_id_.end()) {
@@ -526,10 +526,11 @@ void TensorInferencer::processOutput(const InferenceInput &input,
     return;
   }
   int target_class_id = it->second;
-  std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
+  // std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
 
   float confidence_threshold = std::max(0.3f, input.confidence_thresh);
-  std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold << std::endl;
+  // std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold <<
+  // std::endl;
 
   std::vector<Detection> detections;
 
@@ -553,11 +554,12 @@ void TensorInferencer::processOutput(const InferenceInput &input,
 
     float target_confidence = class_scores[target_class_id];
 
-    if (i < 10 || target_confidence > 0.2f) {
-      std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << " (类别"
-                << best_class_id << "), " << input.object_name
-                << "得分=" << target_confidence << std::endl;
-    }
+    // if (i < 10 || target_confidence > 0.2f) {
+    //   std::cout << "[DEBUG] 框 " << i << ": 最高得分=" << max_score << "
+    //   (类别"
+    //             << best_class_id << "), " << input.object_name
+    //             << "得分=" << target_confidence << std::endl;
+    // }
 
     if (best_class_id == target_class_id &&
         target_confidence >= confidence_threshold &&
@@ -580,19 +582,19 @@ void TensorInferencer::processOutput(const InferenceInput &input,
       Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
       detections.push_back(detection);
 
-      std::cout << "[DETECTION] 发现 " << input.object_name
-                << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
-                << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
-                << ")" << std::endl;
+      // std::cout << "[DETECTION] 发现 " << input.object_name
+      //           << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
+      //           << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
+      //           << ")" << std::endl;
     }
   }
 
-  std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
-            << input.object_name << std::endl;
+  // std::cout << "[OUTPUT] 处理完成，共发现 " << detections.size() << " 个 "
+  //           << input.object_name << std::endl;
 
   std::vector<Detection> nms_detections = applyNMS(detections, 0.5f);
-  std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
-            << std::endl;
+  // std::cout << "[NMS] NMS后剩余 " << nms_detections.size() << " 个检测"
+  //           << std::endl;
 
   for (size_t i = 0; i < nms_detections.size(); ++i) {
     const auto &det = nms_detections[i];
@@ -602,10 +604,10 @@ void TensorInferencer::processOutput(const InferenceInput &input,
 
   if (nms_detections.empty()) {
     std::cout << "[INFO] 未检测到目标物体，可能原因:" << std::endl;
-    std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
-              << std::endl;
-    std::cout << "  2. 图像预处理问题" << std::endl;
-    std::cout << "  3. 模型输出格式不匹配" << std::endl;
-    std::cout << "  4. 模型输出为 logits，未加 sigmoid 激活" << std::endl;
+    // std::cout << "  1. 置信度阈值过高 (当前: " << confidence_threshold << ")"
+    //           << std::endl;
+    // std::cout << "  2. 图像预处理问题" << std::endl;
+    // std::cout << "  3. 模型输出格式不匹配" << std::endl;
+    // std::cout << "  4. 模型输出为 logits，未加 sigmoid 激活" << std::endl;
   }
 }

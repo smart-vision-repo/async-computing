@@ -37,7 +37,7 @@ int main(int argc, char **argv) {
   InferenceInput input;
   input.decoded_frames.push_back(image);
   input.object_name = "dog";
-  input.confidence_thresh = 0.3f;
+  input.confidence_thresh = 0.6f;
   input.gopIdx = 0;
 
   // 执行推理
