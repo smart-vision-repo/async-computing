@@ -67,7 +67,6 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     }
   });
 }
-
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
   InferenceInput input;
@@ -75,12 +74,17 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   input.object_name = object_name;
   input.confidence_thresh = confidence;
   input.gopIdx = gopId;
-
   {
     std::lock_guard<std::mutex> lock(infer_mutex);
     infer_inputs.push(std::move(input));
   }
   infer_cv.notify_all();
+  // decoder任务完成，减一并通知
+  {
+    std::lock_guard<std::mutex> lock(task_mutex);
+    remaining_decode_tasks--;
+  }
+  task_cv.notify_all();
 }
 
 int VideoProcessor::process() {
@@ -146,6 +150,11 @@ int VideoProcessor::process() {
                          [this](std::vector<cv::Mat> frames, int gopId) {
                            this->onDecoded(std::move(frames), gopId);
                          });
+
+          {
+            std::lock_guard<std::mutex> lock(task_mutex);
+            remaining_decode_tasks++;
+          }
           all_pkts.push_back(std::move(decoding_pkts));
         } else {
           pool += frame_idx_in_gop;
@@ -173,6 +182,11 @@ int VideoProcessor::process() {
                    [this](std::vector<cv::Mat> frames, int gopId) {
                      this->onDecoded(std::move(frames), gopId);
                    });
+
+    {
+      std::lock_guard<std::mutex> lock(task_mutex);
+      remaining_decode_tasks++;
+    }
     all_pkts.push_back(std::move(decoding_pkts));
     skipped_frames += pool;
     last_frame_in_gop = hits * interval - pool;
@@ -186,7 +200,17 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
 
-  decoder.waitForAllTasks();
+  // 等待 decoder 所有任务完成
+  while (true) {
+    std::unique_lock<std::mutex> lock(task_mutex);
+    if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
+          return remaining_decode_tasks.load() == 0;
+        })) {
+      break; // 全部完成
+    }
+    std::cerr << "[Waiting] Remaining decode tasks: "
+              << remaining_decode_tasks.load() << std::endl;
+  }
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);

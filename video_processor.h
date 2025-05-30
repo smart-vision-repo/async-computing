@@ -38,6 +38,9 @@ private:
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
   YoloInferencer inferencer;
+  std::atomic<int> remaining_decode_tasks{0};
+  std::mutex task_mutex;
+  std::condition_variable task_cv;
 };
 
 #endif // VIDEO_PROCESSOR_H
