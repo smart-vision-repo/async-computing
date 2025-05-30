@@ -1,4 +1,5 @@
 #include "video_processor.h"
+#include "tensor_inferencer.hpp"
 #include "yolo_inferencer.h"
 
 #include <algorithm>
