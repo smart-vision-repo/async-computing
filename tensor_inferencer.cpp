@@ -56,6 +56,14 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
 
   inputIndex_ = engine_->getBindingIndex("images");
   outputIndex_ = engine_->getBindingIndex(engine_->getBindingName(1));
+
+  // Attempt to infer output size once
+  Dims outDims = engine_->getBindingDimensions(outputIndex_);
+  outputSize_ = 1;
+  for (int i = 0; i < outDims.nbDims; ++i)
+    outputSize_ *= outDims.d[i] > 0 ? outDims.d[i] : 1;
+  std::cout << "[INFO] Initial output size estimated: " << outputSize_
+            << std::endl;
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -132,6 +140,14 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     return false;
   }
 
+  if (outputSize_ == 0) {
+    Dims outDims = context_->getBindingDimensions(outputIndex_);
+    outputSize_ = 1;
+    for (int i = 0; i < outDims.nbDims; ++i)
+      outputSize_ *= outDims.d[i] > 0 ? outDims.d[i] : 1;
+    std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+  }
+
   // Allocate GPU memory
   if (inputDevice_)
     cudaFree(inputDevice_);
@@ -144,6 +160,9 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
+
+  std::cout << "[DEBUG] inputSize_: " << inputSize_
+            << ", outputSize_: " << outputSize_ << std::endl;
 
   // Run inference
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
