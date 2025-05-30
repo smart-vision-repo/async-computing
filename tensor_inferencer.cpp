@@ -32,7 +32,11 @@ std::vector<char> loadEngineFile(const std::string &engine_path) {
 }
 
 int main() {
-  const std::string engine_path = "yolov8n.engine"; // 替换为你的模型路径
+  const char *env_engine_path = std::getenv("YOLO_ENGINE_NAME");
+  if (!env_engine_path) {
+    throw std::runtime_error("YOLO_ENGINE_NAME not set");
+  }
+  const std::string engine_path = env_engine_path;
 
   // 加载 engine
   auto engine_data = loadEngineFile(engine_path);
