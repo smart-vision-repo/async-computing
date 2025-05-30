@@ -33,8 +33,9 @@ check_gpp() {
 
 # Setup environment variables and compile
 compile() {
-    local output_name="app_video_processor"
-    local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp message_proxy.cpp)
+    local output_name="app_tensor_inferencer"
+    local src_files=(tensor_main.cpp tersor_inferencer.cpp)
+    # local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp message_proxy.cpp)
 
     log_info "Checking for pkg-config and dependencies..."
 
@@ -49,6 +50,10 @@ compile() {
     fi
 
     log_success "All required libraries found."
+
+    TENSORRT_INCLUDE=/home/tju/app/TensorRT-8.6.1.6/include
+    TENSORRT_LIB=/home/tju/app/TensorRT-8.6.1.6/lib
+    TENSORRT_FLAGS="-I$TENSORRT_INCLUDE -L$TENSORRT_LIB -lnvinfer -lnvonnxparser -lnvinfer_plugin"
 
     FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
     FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
@@ -67,6 +72,7 @@ compile() {
         "${src_files[@]}" -o "$output_name" \
         $FFMPEG_CFLAGS $OPENCV_CFLAGS \
         $FFMPEG_LIBS $OPENCV_LIBS $CUDA_FLAGS \
+        $TENSORRT_FLAGS \
         -lpthread 2> compile.log; then
         log_error "Compilation failed. See details below:"
         cat compile.log >&2
