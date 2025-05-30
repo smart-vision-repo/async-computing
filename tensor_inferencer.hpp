@@ -16,6 +16,7 @@ public:
   bool infer(const InferenceInput &input);
 
 private:
+  std::unordered_map<std::string, int> class_name_to_id_;
   nvinfer1::IRuntime *runtime_ = nullptr;
   nvinfer1::ICudaEngine *engine_ = nullptr;
   nvinfer1::IExecutionContext *context_ = nullptr;

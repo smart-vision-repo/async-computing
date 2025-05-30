@@ -1,5 +1,6 @@
 #include "tensor_inferencer.hpp"
 #include <cassert>
+#include <cmath> // for exp, isfinite
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -30,7 +31,8 @@ static int roundToNearestMultiple(int val, int base = 32) {
   return ((val + base / 2) / base) * base;
 }
 
-TensorInferencer::TensorInferencer(int video_height, int video_width) {
+TensorInferencer::TensorInferencer(int video_height, int video_width)
+    : class_name_to_id_() {
   target_w_ = roundToNearestMultiple(video_width, 32);
   target_h_ = roundToNearestMultiple(video_height, 32);
 
@@ -59,6 +61,26 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
 
   for (int i = 0; i < 2; ++i)
     bindings_[i] = nullptr;
+
+  // Load class name -> ID map from YOLO_COCO_NAMES
+  const char *names_path = std::getenv("YOLO_COCO_NAMES");
+  if (!names_path) {
+    std::cerr << "[ERROR] Environment variable YOLO_COCO_NAMES not set."
+              << std::endl;
+    std::exit(1);
+  }
+  std::ifstream names_file(names_path);
+  if (!names_file.is_open()) {
+    std::cerr << "[ERROR] Failed to open " << names_path << std::endl;
+    std::exit(1);
+  }
+  std::string line;
+  int idx = 0;
+  while (std::getline(names_file, line)) {
+    if (!line.empty()) {
+      class_name_to_id_[line] = idx++;
+    }
+  }
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -179,6 +201,8 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   return true;
 }
 
+#include <unordered_map>
+
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output) {
   const int box_step = 85;
@@ -187,32 +211,46 @@ void TensorInferencer::processOutput(const InferenceInput &input,
 
   for (int i = 0; i < num_boxes; ++i) {
     const float *det = &host_output[i * box_step];
-    float objectness = det[4];
-    if (objectness < input.confidence_thresh)
+    float objectness = 1.0f / (1.0f + std::exp(-det[4]));
+
+    if (!std::isfinite(objectness) || objectness < 0.0f || objectness > 1.0f) {
+      std::cerr << "[ERROR] Invalid objectness: " << det[4] << " -> "
+                << objectness << std::endl;
       continue;
+    }
 
     int class_id = -1;
     float max_score = 0.0f;
     for (int j = 0; j < num_classes; ++j) {
-      float cls_score = det[5 + j];
+      float cls_score = 1.0f / (1.0f + std::exp(-det[5 + j]));
+      if (!std::isfinite(cls_score))
+        continue;
       if (cls_score > max_score) {
         max_score = cls_score;
         class_id = j;
       }
     }
 
-    if (max_score * objectness < input.confidence_thresh)
+    float confidence = objectness * max_score;
+    if (confidence < input.confidence_thresh)
       continue;
 
-    if (input.object_name == "dog" && class_id == 16) {
-      float cx = det[0], cy = det[1], w = det[2], h = det[3];
-      float x1 = cx - w / 2, y1 = cy - h / 2;
-      float x2 = cx + w / 2, y2 = cy + h / 2;
-
-      std::cout << "[YOLO] GOP: " << input.gopIdx
-                << ", Confidence: " << (objectness * max_score)
-                << ", Class: dog, Box: (" << x1 << "," << y1 << "," << x2 << ","
-                << y2 << ")\n";
-    }
+    // Load class name -> ID map from environment-specified file
+    // use class_name_to_id_ loaded during construction
   }
+  auto it = class_name_to_id_.find(input.object_name);
+  if (it != class_name_to_id.end() && class_id == it->second) {
+    float cx = det[0], cy = det[1], w = det[2], h = det[3];
+    float x1 = cx - w / 2, y1 = cy - h / 2;
+    float x2 = cx + w / 2, y2 = cy + h / 2;
+
+    std::cout << "[YOLO] GOP: " << input.gopIdx
+              << ", Confidence: " << confidence
+              << ", Class: " + input.object_name
+  }
+  ]
+}
+, Box : (" << x1 << ", " << y1 << ", " << x2 << ", " << y2 << ")\n ";
+}
+}
 }
