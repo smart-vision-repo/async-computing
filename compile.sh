@@ -34,7 +34,7 @@ check_gpp() {
 # Setup environment variables and compile
 compile() {
     local output_name="app_tensor_inferencer"
-    local src_files=(tensor_main.cpp tersor_inferencer.cpp)
+    local src_files=(tensor_main.cpp tensor_inferencer.cpp)
     # local src_files=(main.cpp video_processor.cpp packet_decoder.cpp yolo_inferencer.cpp message_proxy.cpp)
 
     log_info "Checking for pkg-config and dependencies..."
