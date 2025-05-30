@@ -1,5 +1,4 @@
 // video_processor.cpp
-
 #include "video_processor.h"
 #include "inference_input.hpp"
 
@@ -65,8 +64,11 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
         InferenceInput input = std::move(infer_inputs.front());
         infer_inputs.pop();
         lock.unlock();
-        // yolo_inferencer.infer(input);
-        tensor_inferencer.infer(input);
+        if (tensor_inferencer) {
+          tensor_inferencer->infer(input);
+        } else {
+          std::cerr << "[ERROR] TensorInferencer not initialized." << std::endl;
+        }
         lock.lock();
       }
     }
@@ -89,7 +91,6 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
 }
 
 int VideoProcessor::process() {
-
   AVPacket *packet = av_packet_alloc();
   if (!packet) {
     std::cerr << "Could not allocate AVPacket" << std::endl;
@@ -223,11 +224,11 @@ int VideoProcessor::initialize() {
   }
 
   AVCodecParameters *codecpar = fmtCtx->streams[videoStream]->codecpar;
-  frame_width = codecpar->width;
-  frame_heigh = codecpar->height;
+  frame_width = (codecpar->width + 31) / 32 * 32;
+  frame_heigh = (codecpar->height + 31) / 32 * 32;
   tensor_inferencer.emplace(frame_heigh, frame_width);
-  std::cout << "Video Width: " << frame_width << ", Height: " << frame_heigh
-            << std::endl;
+  std::cout << "Video Width: " << codecpar->width
+            << ", Height: " << codecpar->height << std::endl;
   return 0;
 }
 
