@@ -45,4 +45,7 @@ private:
   void processOutput(const InferenceInput &input,
                      const std::vector<float> &host_output,
                      const cv::Mat &raw_img);
+  void saveAnnotatedImage(const cv::Mat &raw_img, float x1, float y1, float x2,
+                          float y2, float confidence,
+                          const std::string &class_name, int gopIdx);
 };
