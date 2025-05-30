@@ -191,23 +191,26 @@ void TensorInferencer::processOutput(const InferenceInput &input,
   int num_classes = 80;
   int num_boxes = static_cast<int>(host_output.size() / box_step);
 
+  auto sigmoid = [](float x) { return 1.0f / (1.0f + std::exp(-x)); };
+
   for (int i = 0; i < num_boxes; ++i) {
     const float *det = &host_output[i * box_step];
-    float objectness = det[4];
+    float objectness = sigmoid(det[4]);
     if (objectness < input.confidence_thresh)
       continue;
 
     int class_id = -1;
     float max_score = 0.0f;
     for (int j = 0; j < num_classes; ++j) {
-      float cls_score = det[5 + j];
+      float cls_score = sigmoid(det[5 + j]);
       if (cls_score > max_score) {
         max_score = cls_score;
         class_id = j;
       }
     }
 
-    if (max_score * objectness < input.confidence_thresh)
+    float confidence = objectness * max_score;
+    if (confidence < input.confidence_thresh)
       continue;
 
     if (input.object_name == "dog" && class_id == 16) {
@@ -216,9 +219,8 @@ void TensorInferencer::processOutput(const InferenceInput &input,
       float x2 = cx + w / 2, y2 = cy + h / 2;
 
       std::cout << "[YOLO] GOP: " << input.gopIdx
-                << ", Confidence: " << (objectness * max_score)
-                << ", Class: dog, Box: (" << x1 << "," << y1 << "," << x2 << ","
-                << y2 << ")\n";
+                << ", Confidence: " << confidence << ", Class: dog, Box: ("
+                << x1 << "," << y1 << "," << x2 << "," << y2 << ")\n";
     }
   }
 }
