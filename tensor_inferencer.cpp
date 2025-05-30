@@ -26,8 +26,17 @@ static std::vector<char> readEngineFile(const std::string &enginePath) {
   return engineData;
 }
 
-TensorInferencer::TensorInferencer(int target_h, int target_w)
-    : target_h_(target_h), target_w_(target_w) {
+static int roundToNearestMultiple(int val, int base = 32) {
+  return ((val + base / 2) / base) * base;
+}
+
+TensorInferencer::TensorInferencer(int video_height, int video_width) {
+  target_w_ = roundToNearestMultiple(video_width, 32);
+  target_h_ = roundToNearestMultiple(video_height, 32);
+
+  std::cout << "[INFO] Adjusted input size: " << target_w_ << "x" << target_h_
+            << " (32-aligned)" << std::endl;
+
   const char *env_path = std::getenv("YOLO_ENGINE_NAME");
   if (!env_path) {
     std::cerr << "[ERROR] Environment variable YOLO_ENGINE_NAME not set."
@@ -63,9 +72,7 @@ TensorInferencer::~TensorInferencer() {
 bool TensorInferencer::infer(const std::vector<float> &input,
                              std::vector<float> &output) {
   if (inputSize_ == 0 || outputSize_ == 0) {
-    std::cerr << "[ERROR] 未初始化 "
-                 "inputSize/outputSize，需通过结构体版本推理接口设置。"
-              << std::endl;
+    std::cerr << "[ERROR] inputSize/outputSize 未初始化" << std::endl;
     return false;
   }
 
