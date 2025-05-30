@@ -141,19 +141,20 @@ bool TensorInferencer::infer(const InferenceInput &input) {
                   << outDims.d[i] << ", replacing with 1." << std::endl;
         outDims.d[i] = 1;
       }
-      outputSize_ *= outDims.d[i];
     }
-    std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
-
-    // Optional check: for YOLO-like models
-    if (outputSize_ % 85 != 0) {
-      std::cerr << "[WARNING] Output size " << outputSize_
-                << " is not divisible by 85. This may indicate incorrect "
-                   "output dimensions."
-                << std::endl;
-    }
+    outputSize_ *= outDims.d[i];
   }
-  outputSize_ *= outDims.d[i];
+  std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+
+  // Optional check: for YOLO-like models
+  if (outputSize_ % 85 != 0) {
+    std::cerr << "[WARNING] Output size " << outputSize_
+              << " is not divisible by 85. This may indicate incorrect output "
+                 "dimensions."
+              << std::endl;
+  }
+}
+outputSize_ *= outDims.d[i];
 }
 std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
 }
@@ -202,7 +203,10 @@ return true;
 
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output) {
-  const int num_boxes = 8400;
+  int box_step = 85;
+  int num_classes = 80;
+  int num_boxes = static_cast<int>(host_output.size() / box_step);
+
   const int num_classes = 80;
   const int box_step = 85;
 
