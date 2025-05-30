@@ -71,15 +71,8 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
   {
     std::lock_guard<std::mutex> lock(queueMutex);
     taskQueue.push(DecodeTask{copied_pkts, interval, gopId, callback});
-    ++activeTasks;
   }
   queueCond.notify_one();
-}
-
-void PacketDecoder::waitForAllTasks() {
-  std::unique_lock<std::mutex> lock(queueMutex);
-  doneCond.wait(lock,
-                [this]() { return activeTasks == 0 && taskQueue.empty(); });
 }
 
 void PacketDecoder::workerLoop() {
@@ -219,14 +212,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     if (pkt) {
       av_packet_unref(pkt);
       av_packet_free(&pkt);
-    }
-  }
-
-  {
-    std::lock_guard<std::mutex> lock(queueMutex);
-    --activeTasks;
-    if (activeTasks == 0 && taskQueue.empty()) {
-      doneCond.notify_all();
     }
   }
 }
