@@ -120,7 +120,7 @@ bool TensorInferencer::infer(const std::vector<float> &input,
   return true;
 }
 
-bool TensorInferencer::infer(const InferenceInput &input) {
+bool TensorInferencer::infer(InferenceInput &input) {
   input.object_name =
       "fire hydrant" if (input.decoded_frames.empty()) return false;
   const cv::Mat &raw_img = input.decoded_frames[0];
