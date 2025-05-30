@@ -139,13 +139,25 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       if (outDims.d[i] <= 0) {
         std::cerr << "[WARNING] Output dimension " << i << " is "
                   << outDims.d[i] << ", replacing with 1." << std::endl;
-        outDims.d[i] = 1; // fallback to 1 to avoid zero-size allocation
+        outDims.d[i] = 1;
       }
       outputSize_ *= outDims.d[i];
     }
     std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+
+    // Optional check: for YOLO-like models
+    if (outputSize_ % 85 != 0) {
+      std::cerr << "[WARNING] Output size " << outputSize_
+                << " is not divisible by 85. This may indicate incorrect "
+                   "output dimensions."
+                << std::endl;
+    }
   }
   outputSize_ *= outDims.d[i];
+}
+std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+}
+outputSize_ *= outDims.d[i];
 }
 std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
 
