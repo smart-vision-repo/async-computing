@@ -53,26 +53,27 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     std::exit(ret);
   }
   // 启动独立推理线程
-  infer_thread = std::thread([this]() {
-    while (!stop_infer_thread) {
-      std::unique_lock<std::mutex> lock(infer_mutex);
-      infer_cv.wait(lock, [this]() {
-        return !infer_inputs.empty() || stop_infer_thread;
-      });
+  // infer_thread = std::thread([this]() {
+  //   while (!stop_infer_thread) {
+  //     std::unique_lock<std::mutex> lock(infer_mutex);
+  //     infer_cv.wait(lock, [this]() {
+  //       return !infer_inputs.empty() || stop_infer_thread;
+  //     });
 
-      while (!infer_inputs.empty()) {
-        InferenceInput input = std::move(infer_inputs.front());
-        infer_inputs.pop();
-        lock.unlock();
-        if (tensor_inferencer) {
-          tensor_inferencer->infer(input);
-        } else {
-          std::cerr << "[ERROR] TensorInferencer not initialized." << std::endl;
-        }
-        lock.lock();
-      }
-    }
-  });
+  //     while (!infer_inputs.empty()) {
+  //       InferenceInput input = std::move(infer_inputs.front());
+  //       infer_inputs.pop();
+  //       lock.unlock();
+  //       if (tensor_inferencer) {
+  //         tensor_inferencer->infer(input);
+  //       } else {
+  //         std::cerr << "[ERROR] TensorInferencer not initialized." <<
+  //         std::endl;
+  //       }
+  //       lock.lock();
+  //     }
+  //   }
+  // });
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
