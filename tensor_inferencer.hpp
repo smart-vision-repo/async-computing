@@ -16,14 +16,12 @@ public:
   bool infer(const InferenceInput &input);
 
 private:
-  // 检测结果保存路径
-  std::string image_output_path_;
-  // TensorRT objects
+  // TensorRT runtime components
   nvinfer1::IRuntime *runtime_ = nullptr;
   nvinfer1::ICudaEngine *engine_ = nullptr;
   nvinfer1::IExecutionContext *context_ = nullptr;
 
-  // GPU memory
+  // GPU memory buffers
   void *inputDevice_ = nullptr;
   void *outputDevice_ = nullptr;
   void *bindings_[2] = {nullptr, nullptr};
@@ -34,12 +32,15 @@ private:
   size_t inputSize_ = 0;
   size_t outputSize_ = 0;
 
-  // Input dimensions
+  // Input image dimensions (aligned)
   int target_w_ = 0;
   int target_h_ = 0;
 
   // Class name to ID mapping (loaded from YOLO_COCO_NAMES)
   std::unordered_map<std::string, int> class_name_to_id_;
+
+  // Image saving path (loaded from YOLO_IMAGE_PATH env)
+  std::string image_output_path_;
 
   void processOutput(const InferenceInput &input,
                      const std::vector<float> &host_output);

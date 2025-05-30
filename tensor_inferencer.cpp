@@ -32,10 +32,6 @@ static int roundToNearestMultiple(int val, int base = 32) {
 }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width) {
-  const char *image_path_env = std::getenv("YOLO_IMAGE_PATH");
-  if (image_path_env) {
-    image_output_path_ = image_path_env;
-  }
   target_w_ = roundToNearestMultiple(video_width, 32);
   target_h_ = roundToNearestMultiple(video_height, 32);
 
@@ -48,6 +44,22 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
               << std::endl;
     std::exit(1);
   }
+
+  const char *names_path = std::getenv("YOLO_COCO_NAMES");
+  if (!names_path) {
+    std::cerr << "[ERROR] Environment variable YOLO_COCO_NAMES not set."
+              << std::endl;
+    std::exit(1);
+  }
+
+  const char *output_path_env = std::getenv("YOLO_IMAGE_PATH");
+  if (!output_path_env) {
+    std::cerr << "[ERROR] Environment variable YOLO_IMAGE_PATH not set."
+              << std::endl;
+    std::exit(1);
+  }
+  image_output_path_ = output_path_env;
+
   std::string enginePath = env_path;
 
   auto engineData = readEngineFile(enginePath);
@@ -62,12 +74,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
   inputIndex_ = engine_->getBindingIndex("images");
   outputIndex_ = engine_->getBindingIndex(engine_->getBindingName(1));
 
-  const char *names_path = std::getenv("YOLO_COCO_NAMES");
-  if (!names_path) {
-    std::cerr << "[ERROR] Environment variable YOLO_COCO_NAMES not set."
-              << std::endl;
-    std::exit(1);
-  }
   std::ifstream infile(names_path);
   if (!infile.is_open()) {
     std::cerr << "[ERROR] Failed to open file: " << names_path << std::endl;
@@ -149,11 +155,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
         outDims.d[i] = 1;
       outputSize_ *= outDims.d[i];
     }
-    std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
-    if (outputSize_ % 85 != 0) {
-      std::cerr << "[WARNING] Output size " << outputSize_
-                << " is not divisible by 85." << std::endl;
-    }
   }
 
   if (inputDevice_)
@@ -166,9 +167,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
              outputSize_ * sizeof(float));
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
-
-  std::cout << "[DEBUG] inputSize_: " << inputSize_
-            << ", outputSize_: " << outputSize_ << std::endl;
 
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
@@ -184,7 +182,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output) {
-  const bool save_image = !image_output_path_.empty();
   int box_step = 85;
   int num_classes = 80;
   int num_boxes = static_cast<int>(host_output.size() / box_step);
@@ -220,27 +217,12 @@ void TensorInferencer::processOutput(const InferenceInput &input,
       std::cout << "[YOLO] GOP: " << input.gopIdx
                 << ", Confidence: " << confidence
                 << ", Class: " << input.object_name << ", Box: (" << x1 << ","
-                << y1 << "," << x2 << "," << y2
-                << ")
-                   ";
-
-          if (save_image && !input.decoded_frames.empty()) {
-        cv::Mat vis_img = input.decoded_frames[0].clone();
-        int orig_w = vis_img.cols, orig_h = vis_img.rows;
-
-        // Rescale box coordinates back to original image size
-        float scale_x = static_cast<float>(orig_w) / target_w_;
-        float scale_y = static_cast<float>(orig_h) / target_h_;
-        cv::Rect box_rect(
-            static_cast<int>(x1 * scale_x), static_cast<int>(y1 * scale_y),
-            static_cast<int>(w * scale_x), static_cast<int>(h * scale_y));
-        cv::rectangle(vis_img, box_rect, cv::Scalar(0, 255, 0), 2);
-
-        char filename[512];
-        snprintf(filename, sizeof(filename), "%s/detection_gop%d.jpg",
-                 image_output_path_.c_str(), input.gopIdx);
-        cv::imwrite(filename, vis_img);
-      }
+                << y1 << "," << x2 << "," << y2 << ")\n";
+      // 保存图片
+      std::ostringstream filename;
+      filename << image_output_path_ << "/gop" << input.gopIdx << "_conf"
+               << static_cast<int>(confidence * 100) << ".jpg";
+      cv::imwrite(filename.str(), raw_img);
     }
   }
 }
