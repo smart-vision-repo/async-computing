@@ -93,7 +93,6 @@ void PacketDecoder::workerLoop() {
     }
     decodeTask(task, localCtx);
   }
-
   avcodec_free_context(&localCtx);
 }
 
