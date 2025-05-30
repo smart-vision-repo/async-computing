@@ -176,12 +176,13 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   std::vector<float> host_output(outputSize_);
   cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
              cudaMemcpyDeviceToHost);
-  processOutput(input, host_output);
+  processOutput(input, host_output, raw_img);
   return true;
 }
 
 void TensorInferencer::processOutput(const InferenceInput &input,
-                                     const std::vector<float> &host_output) {
+                                     const std::vector<float> &host_output,
+                                     const cv::Mat &raw_img) {
   int box_step = 85;
   int num_classes = 80;
   int num_boxes = static_cast<int>(host_output.size() / box_step);
