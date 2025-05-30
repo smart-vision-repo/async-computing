@@ -582,10 +582,10 @@ void TensorInferencer::processOutput(const InferenceInput &input,
       Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
       detections.push_back(detection);
 
-      // std::cout << "[DETECTION] 发现 " << input.object_name
-      //           << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
-      //           << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
-      //           << ")" << std::endl;
+      std::cout << "[DETECTION] 发现 " << input.object_name
+                << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
+                << ", 边界框: (" << x1 << "," << y1 << "," << x2 << "," << y2
+                << ")" << std::endl;
     }
   }
 
