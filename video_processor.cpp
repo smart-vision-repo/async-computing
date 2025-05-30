@@ -2,7 +2,6 @@
 
 #include "video_processor.h"
 #include "inference_input.hpp"
-#include "yolo_inferencer.h" // 确保包含推理器声明
 
 #include <algorithm>
 #include <atomic>
