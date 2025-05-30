@@ -2,7 +2,7 @@
 #define VIDEO_PROCESSOR_H
 #include "inference_input.hpp"
 #include "packet_decoder.h"
-#include "tensor_inferencer.h"
+#include "tensor_inferencer.hpp"
 #include "yolo_inferencer.h"
 #include <atomic>
 #include <condition_variable>
