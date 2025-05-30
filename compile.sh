@@ -23,7 +23,7 @@ log_error() {
 
 # Check g++ compiler
 check_gpp() {
-    if ! command -v g++ &> /dev/null; then
+    if ! command -v g++ &>/dev/null; then
         log_error "g++ command not found."
         return 1
     fi
@@ -51,20 +51,24 @@ compile() {
 
     log_success "All required libraries found."
 
-    TENSORRT_INCLUDE=/home/tju/apps/TensorRT-8.6.1.6/include
-    TENSORRT_LIB=/home/tju/apps/TensorRT-8.6.1.6/lib
-    TENSORRT_FLAGS="-I$TENSORRT_INCLUDE -L$TENSORRT_LIB -lnvinfer -lnvonnxparser -lnvinfer_plugin"
+    # CUDA 12.2 路径
+    CUDA_ROOT=/usr/local/cuda-12.2
+    CUDA_INCLUDE=$CUDA_ROOT/include
+    CUDA_LIB=$CUDA_ROOT/lib64
+
+    # TensorRT 路径
+    TENSORRT_ROOT=/home/tju/apps/TensorRT-8.6.1.6
+    TENSORRT_INCLUDE=$TENSORRT_ROOT/include
+    TENSORRT_LIB=$TENSORRT_ROOT/lib
+
+    # 添加编译标志
+    INFER_INCLUDE_FLAGS="-I$CUDA_INCLUDE -I$TENSORRT_INCLUDE"
+    TENSORRT_FLAGS="-L$CUDA_LIB -L$TENSORRT_LIB -lnvinfer -lnvinfer_plugin -lnvonnxparser -lcudart"
 
     FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
     FFMPEG_LIBS=$(pkg-config --libs libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
     OPENCV_CFLAGS=$(pkg-config --cflags opencv4)
     OPENCV_LIBS=$(pkg-config --libs opencv4)
-
-    CUDA_FLAGS=""
-    if command -v nvcc &>/dev/null; then
-        CUDA_FLAGS="-lcuda -lcudart"
-        log_info "CUDA detected, adding CUDA flags."
-    fi
 
     log_info "Compiling ${src_files[*]}..."
 
@@ -72,8 +76,8 @@ compile() {
         "${src_files[@]}" -o "$output_name" \
         $FFMPEG_CFLAGS $OPENCV_CFLAGS \
         $FFMPEG_LIBS $OPENCV_LIBS $CUDA_FLAGS \
-        $TENSORRT_FLAGS \
-        -lpthread 2> compile.log; then
+        $INFER_INCLUDE_FLAGS $TENSORRT_FLAGS \
+        -lpthread 2>compile.log; then
         log_error "Compilation failed. See details below:"
         cat compile.log >&2
         exit 1
