@@ -51,8 +51,8 @@ compile() {
 
     log_success "All required libraries found."
 
-    TENSORRT_INCLUDE=/home/tju/app/TensorRT-8.6.1.6/include
-    TENSORRT_LIB=/home/tju/app/TensorRT-8.6.1.6/lib
+    TENSORRT_INCLUDE=/home/tju/apps/TensorRT-8.6.1.6/include
+    TENSORRT_LIB=/home/tju/apps/TensorRT-8.6.1.6/lib
     TENSORRT_FLAGS="-I$TENSORRT_INCLUDE -L$TENSORRT_LIB -lnvinfer -lnvonnxparser -lnvinfer_plugin"
 
     FFMPEG_CFLAGS=$(pkg-config --cflags libavformat libavcodec libavutil libswscale libSimpleAmqpClient)
