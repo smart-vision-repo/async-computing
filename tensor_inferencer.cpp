@@ -1,5 +1,3 @@
-
-// tensor_inferencer.cpp
 #include "tensor_inferencer.hpp"
 #include <cassert>
 #include <cstdlib>
@@ -28,7 +26,8 @@ static std::vector<char> readEngineFile(const std::string &enginePath) {
   return engineData;
 }
 
-TensorInferencer::TensorInferencer() {
+TensorInferencer::TensorInferencer(int target_h, int target_w)
+    : target_h_(target_h), target_w_(target_w) {
   const char *env_path = std::getenv("YOLO_ENGINE_NAME");
   if (!env_path) {
     std::cerr << "[ERROR] Environment variable YOLO_ENGINE_NAME not set."
@@ -85,15 +84,20 @@ bool TensorInferencer::infer(const std::vector<float> &input,
 bool TensorInferencer::infer(const InferenceInput &input) {
   if (input.decoded_frames.empty())
     return false;
-  const cv::Mat &img = input.decoded_frames[0];
-  if (img.empty())
+  const cv::Mat &raw_img = input.decoded_frames[0];
+  if (raw_img.empty())
     return false;
 
+  // Resize to target size
+  cv::Mat img;
+  cv::resize(raw_img, img, cv::Size(target_w_, target_h_));
+
   int c = 3;
-  int h = img.rows;
-  int w = img.cols;
+  int h = target_h_;
+  int w = target_w_;
   inputSize_ = static_cast<size_t>(c * h * w);
 
+  // Convert HWC to CHW float32
   cv::Mat chw_input;
   img.convertTo(chw_input, CV_32FC3, 1.0 / 255.0);
 
@@ -103,18 +107,16 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       for (int x = 0; x < w; ++x)
         input_data[i * h * w + y * w + x] = chw_input.at<cv::Vec3f>(y, x)[i];
 
-  Dims inputDims = engine_->getBindingDimensions(inputIndex_);
-  if (!context_->allInputDimensionsSpecified() || inputDims.d[0] == -1 ||
-      inputDims.d[2] == -1 || inputDims.d[3] == -1) {
-    inputDims.nbDims = 4;
-    inputDims.d[0] = 1;
-    inputDims.d[1] = 3;
-    inputDims.d[2] = h;
-    inputDims.d[3] = w;
-    if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
-      std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
-      return false;
-    }
+  // Set input shape dynamically
+  Dims inputDims;
+  inputDims.nbDims = 4;
+  inputDims.d[0] = 1;
+  inputDims.d[1] = 3;
+  inputDims.d[2] = h;
+  inputDims.d[3] = w;
+  if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
+    std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
+    return false;
   }
 
   if (!context_->allInputDimensionsSpecified()) {
@@ -123,6 +125,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     return false;
   }
 
+  // Allocate GPU memory
   if (inputDevice_)
     cudaFree(inputDevice_);
   if (outputDevice_)
@@ -135,6 +138,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
 
+  // Run inference
   cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
              cudaMemcpyHostToDevice);
   if (!context_->enqueueV2(bindings_, 0, nullptr))

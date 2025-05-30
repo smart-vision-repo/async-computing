@@ -8,6 +8,7 @@
 #include <vector>
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
 }
 
 // 声明 VideoProcessor 类
@@ -27,12 +28,13 @@ private:
   get_packets_for_decoding(std::vector<AVPacket *> *packages,
                            int last_frame_index);
   void clear_av_packets(std::vector<AVPacket *> *packages);
+  int initialize();
   PacketDecoder decoder;
   std::string video_file_name;
   std::string object_name;
-  float confidence;
   int interval;
   int success_decoded_frames;
+  float confidence;
   std::queue<InferenceInput> infer_inputs;
   std::mutex infer_mutex;
   std::condition_variable infer_cv;
@@ -40,6 +42,10 @@ private:
   std::atomic<bool> stop_infer_thread;
   YoloInferencer yolo_inferencer;
   TensorInferencer tensor_inferencer;
+  AVFormatContext *fmtCtx = nullptr;
+  int frame_heigh = 0;
+  int frame_width = 0;
+  int videoStream = -1;
 };
 
 #endif // VIDEO_PROCESSOR_H

@@ -48,7 +48,11 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
       video_file_name(video_file_name), object_name(object_name),
       confidence(confidence), interval(interval), success_decoded_frames(0),
       stop_infer_thread(false) {
-
+  int ret = initialize();
+  if (ret != 0) {
+    std::cerr << "Initialization failed. Exiting program." << std::endl;
+    std::exit(ret);
+  }
   // 启动独立推理线程
   infer_thread = std::thread([this]() {
     while (!stop_infer_thread) {
@@ -85,32 +89,6 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
 }
 
 int VideoProcessor::process() {
-  const char *video_file_path = video_file_name.c_str();
-  AVFormatContext *fmtCtx = nullptr;
-  if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
-    std::cerr << "Could not open video file: " << video_file_path << std::endl;
-    return -1;
-  }
-
-  if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
-    std::cerr << "Could not get stream info" << std::endl;
-    avformat_close_input(&fmtCtx);
-    return -1;
-  }
-
-  int videoStream = -1;
-  for (unsigned int i = 0; i < fmtCtx->nb_streams; i++) {
-    if (fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-      videoStream = i;
-      break;
-    }
-  }
-
-  if (videoStream == -1) {
-    std::cerr << "No video stream found" << std::endl;
-    avformat_close_input(&fmtCtx);
-    return -1;
-  }
 
   AVPacket *packet = av_packet_alloc();
   if (!packet) {
@@ -213,6 +191,43 @@ int VideoProcessor::process() {
             << "successfully decoded: " << success_decoded_frames << std::endl
             << "extracted frames: " << total_hits << std::endl;
 
+  return 0;
+}
+
+int VideoProcessor::initialize() {
+  const char *video_file_path = video_file_name.c_str();
+  AVFormatContext *fmtCtx = nullptr;
+  if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
+    std::cerr << "Could not open video file: " << video_file_path << std::endl;
+    return -1;
+  }
+
+  if (avformat_find_stream_info(fmtCtx, nullptr) < 0) {
+    std::cerr << "Could not get stream info" << std::endl;
+    avformat_close_input(&fmtCtx);
+    return -1;
+  }
+
+  int videoStream = -1;
+  for (unsigned int i = 0; i < fmtCtx->nb_streams; i++) {
+    if (fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+      videoStream = i;
+      break;
+    }
+  }
+
+  if (videoStream == -1) {
+    std::cerr << "No video stream found" << std::endl;
+    avformat_close_input(&fmtCtx);
+    return -1;
+  }
+
+  AVCodecParameters *codecpar = fmtCtx->streams[videoStream]->codecpar;
+  frame_width = codecpar->width;
+  frame_heigh = codecpar->height;
+  tensor_inferencer = TensorInferencer(frame_heigh, frame_width);
+  std::cout << "Video Width: " << frame_width << ", Height: " << frame_heigh
+            << std::endl;
   return 0;
 }
 
