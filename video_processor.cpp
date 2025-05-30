@@ -54,23 +54,18 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
   }
-  infer_thread = std::thread([this]() {
-    while (!stop_infer_thread) {
-      std::unique_lock<std::mutex> lock(infer_mutex);
-      infer_cv.wait(lock, [this]() {
-        return !infer_inputs.empty() || stop_infer_thread;
-      });
-
-      while (!infer_inputs.empty()) {
-        InferenceInput input = std::move(infer_inputs.front());
-        infer_inputs.pop();
-        lock.unlock();
-        // inferencer.infer(input);
-        tensor_inferencer->infer(input);
-        lock.lock();
-      }
+  while (!infer_inputs.empty()) {
+    InferenceInput input = std::move(infer_inputs.front());
+    infer_inputs.pop();
+    lock.unlock();
+    if (tensor_inferencer) {
+      tensor_inferencer->infer(input);
+    } else {
+      std::cerr << "[ERROR] TensorInferencer not initialized.\n";
     }
-  });
+
+    lock.lock();
+  }
 }
 
 bool VideoProcessor::initialize() {
