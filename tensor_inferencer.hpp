@@ -43,5 +43,6 @@ private:
   std::string image_output_path_;
 
   void processOutput(const InferenceInput &input,
-                     const std::vector<float> &host_output);
+                     const std::vector<float> &host_output,
+                     const cv::Mat &raw_img);
 };
