@@ -87,6 +87,13 @@ TensorInferencer::TensorInferencer(int video_height, int video_width) {
       class_name_to_id_[line] = idx++;
     }
   }
+
+  std::cout << "[ENV] YOLO_IMAGE_PATH: " << image_output_path_ << std::endl;
+  std::cout << "[ENV] Looking for object name: " << input.object_name
+            << std::endl;
+  for (const auto &[name, id] : class_name_to_id_) {
+    std::cout << "[CLASS MAP] " << name << " -> " << id << std::endl;
+  }
 }
 
 TensorInferencer::~TensorInferencer() {
@@ -220,33 +227,52 @@ void TensorInferencer::processOutput(const InferenceInput &input,
                 << ", Confidence: " << confidence
                 << ", Class: " << input.object_name << ", Box: (" << x1 << ","
                 << y1 << "," << x2 << "," << y2 << ")\n";
-      saveAnnotatedImage(raw_img, x1, y1, x2, y2, confidence, input.object_name,
-                         input.gopIdx);
+
+      saveAnnotatedImage(input.decoded_frames[0], x1, y1, x2, y2, confidence,
+                         input.object_name, input.gopIdx);
     }
   }
 }
+
+#include <iomanip> // 确保你包含了这个头文件
 
 void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
                                           float y1, float x2, float y2,
                                           float confidence,
                                           const std::string &class_name,
                                           int gopIdx) {
+  std::cout << "[DEBUG] 正在保存图像. 类别: " << class_name
+            << ", 置信度: " << confidence << ", 原始框: (" << x1 << ", " << y1
+            << ") - (" << x2 << ", " << y2 << ")" << std::endl;
+  std::cout << "[DEBUG] 原图尺寸: " << raw_img.cols << " x " << raw_img.rows
+            << std::endl;
+
   cv::Mat img_to_save = raw_img.clone();
 
   float scale_x =
       static_cast<float>(raw_img.cols) / static_cast<float>(target_w_);
   float scale_y =
       static_cast<float>(raw_img.rows) / static_cast<float>(target_h_);
+
   int x1_scaled = static_cast<int>(x1 * scale_x);
   int y1_scaled = static_cast<int>(y1 * scale_y);
   int x2_scaled = static_cast<int>(x2 * scale_x);
   int y2_scaled = static_cast<int>(y2 * scale_y);
 
-  // Draw rectangle
+  std::cout << "[DEBUG] 映射后框: (" << x1_scaled << ", " << y1_scaled
+            << ") - (" << x2_scaled << ", " << y2_scaled << ")" << std::endl;
+
+  // 边界检查（确保画框合法）
+  x1_scaled = std::max(0, std::min(x1_scaled, raw_img.cols - 1));
+  y1_scaled = std::max(0, std::min(y1_scaled, raw_img.rows - 1));
+  x2_scaled = std::max(0, std::min(x2_scaled, raw_img.cols - 1));
+  y2_scaled = std::max(0, std::min(y2_scaled, raw_img.rows - 1));
+
+  // 画框
   cv::rectangle(img_to_save, cv::Point(x1_scaled, y1_scaled),
                 cv::Point(x2_scaled, y2_scaled), cv::Scalar(0, 255, 0), 2);
 
-  // Create label
+  // 标签文字
   std::ostringstream label;
   label << class_name << " " << std::fixed << std::setprecision(2)
         << confidence;
@@ -254,7 +280,6 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
   cv::Size textSize =
       cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseline);
 
-  // Draw background rectangle for text
   cv::rectangle(img_to_save,
                 cv::Point(x1_scaled, y1_scaled - textSize.height - 4),
                 cv::Point(x1_scaled + textSize.width, y1_scaled),
@@ -262,9 +287,14 @@ void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img, float x1,
   cv::putText(img_to_save, label.str(), cv::Point(x1_scaled, y1_scaled - 2),
               cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
 
-  // Save image
+  // 文件名
   std::ostringstream filename;
   filename << image_output_path_ << "/gop" << gopIdx << "_conf"
            << static_cast<int>(confidence * 100) << ".jpg";
-  cv::imwrite(filename.str(), img_to_save);
+
+  bool success = cv::imwrite(filename.str(), img_to_save);
+  if (success)
+    std::cout << "[SAVE] 已保存图片至 " << filename.str() << std::endl;
+  else
+    std::cerr << "[ERROR] 保存图片失败: " << filename.str() << std::endl;
 }
