@@ -13,7 +13,7 @@ public:
   ~TensorInferencer();
 
   bool infer(const std::vector<float> &input, std::vector<float> &output);
-  bool infer(InferenceInput &input);
+  bool infer(const InferenceInput &input);
 
 private:
   // TensorRT runtime components

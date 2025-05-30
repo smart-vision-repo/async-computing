@@ -165,7 +165,7 @@ bool TensorInferencer::infer(const std::vector<float> &input,
   return true;
 }
 
-bool TensorInferencer::infer(InferenceInput &input) {
+bool TensorInferencer::infer(const InferenceInput &input) {
   std::cout << "[INFER] 开始推理，GOP: " << input.gopIdx
             << ", 目标物体: " << input.object_name << std::endl;
 
