@@ -75,7 +75,6 @@ bool TensorInferencer::infer(const std::vector<float> &input,
     std::cerr << "[ERROR] inputSize/outputSize 未初始化" << std::endl;
     return false;
   }
-
   if (input.size() != inputSize_)
     return false;
   output.resize(outputSize_);
@@ -95,16 +94,12 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   if (raw_img.empty())
     return false;
 
-  // Resize to target size
   cv::Mat img;
   cv::resize(raw_img, img, cv::Size(target_w_, target_h_));
 
-  int c = 3;
-  int h = target_h_;
-  int w = target_w_;
+  int c = 3, h = target_h_, w = target_w_;
   inputSize_ = static_cast<size_t>(c * h * w);
 
-  // Convert HWC to CHW float32
   cv::Mat chw_input;
   img.convertTo(chw_input, CV_32FC3, 1.0 / 255.0);
 
@@ -114,18 +109,11 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       for (int x = 0; x < w; ++x)
         input_data[i * h * w + y * w + x] = chw_input.at<cv::Vec3f>(y, x)[i];
 
-  // Set input shape dynamically
-  Dims inputDims;
-  inputDims.nbDims = 4;
-  inputDims.d[0] = 1;
-  inputDims.d[1] = 3;
-  inputDims.d[2] = h;
-  inputDims.d[3] = w;
+  Dims inputDims{4, {1, 3, h, w}};
   if (!context_->setBindingDimensions(inputIndex_, inputDims)) {
     std::cerr << "[ERROR] Failed to set binding dimensions." << std::endl;
     return false;
   }
-
   if (!context_->allInputDimensionsSpecified()) {
     std::cerr << "[ERROR] Not all input dimensions specified after setting."
               << std::endl;
@@ -141,74 +129,48 @@ bool TensorInferencer::infer(const InferenceInput &input) {
                   << outDims.d[i] << ", replacing with 1." << std::endl;
         outDims.d[i] = 1;
       }
+      outputSize_ *= outDims.d[i];
     }
-    outputSize_ *= outDims.d[i];
+    std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+    if (outputSize_ % 85 != 0) {
+      std::cerr << "[WARNING] Output size " << outputSize_
+                << " is not divisible by 85." << std::endl;
+    }
   }
-  std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
 
-  // Optional check: for YOLO-like models
-  if (outputSize_ % 85 != 0) {
-    std::cerr << "[WARNING] Output size " << outputSize_
-              << " is not divisible by 85. This may indicate incorrect output "
-                 "dimensions."
-              << std::endl;
-  }
-}
-outputSize_ *= outDims.d[i];
-}
-std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
-}
-outputSize_ *= outDims.d[i];
-}
-std::cout << "[INFO] Inferred output size: " << outputSize_ << std::endl;
+  if (inputDevice_)
+    cudaFree(inputDevice_);
+  if (outputDevice_)
+    cudaFree(outputDevice_);
+  cudaMalloc(reinterpret_cast<void **>(&inputDevice_),
+             inputSize_ * sizeof(float));
+  cudaMalloc(reinterpret_cast<void **>(&outputDevice_),
+             outputSize_ * sizeof(float));
 
-// Optional check: for YOLO-like models
-if (outputSize_ % 85 != 0) {
-  std::cerr << "[WARNING] Output size " << outputSize_
-            << " is not divisible by 85. This may indicate incorrect output "
-               "dimensions."
-            << std::endl;
-}
-}
+  bindings_[inputIndex_] = inputDevice_;
+  bindings_[outputIndex_] = outputDevice_;
 
-// Allocate GPU memory
-if (inputDevice_)
-  cudaFree(inputDevice_);
-if (outputDevice_)
-  cudaFree(outputDevice_);
-cudaMalloc(reinterpret_cast<void **>(&inputDevice_),
-           inputSize_ * sizeof(float));
-cudaMalloc(reinterpret_cast<void **>(&outputDevice_),
-           outputSize_ * sizeof(float));
+  std::cout << "[DEBUG] inputSize_: " << inputSize_
+            << ", outputSize_: " << outputSize_ << std::endl;
 
-bindings_[inputIndex_] = inputDevice_;
-bindings_[outputIndex_] = outputDevice_;
+  cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
+             cudaMemcpyHostToDevice);
+  if (!context_->enqueueV2(bindings_, 0, nullptr))
+    return false;
 
-std::cout << "[DEBUG] inputSize_: " << inputSize_
-          << ", outputSize_: " << outputSize_ << std::endl;
+  std::vector<float> host_output(outputSize_);
+  cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
+             cudaMemcpyDeviceToHost);
 
-// Run inference
-cudaMemcpy(inputDevice_, input_data.data(), inputSize_ * sizeof(float),
-           cudaMemcpyHostToDevice);
-if (!context_->enqueueV2(bindings_, 0, nullptr))
-  return false;
-
-std::vector<float> host_output(outputSize_);
-cudaMemcpy(host_output.data(), outputDevice_, outputSize_ * sizeof(float),
-           cudaMemcpyDeviceToHost);
-
-processOutput(input, host_output);
-return true;
+  processOutput(input, host_output);
+  return true;
 }
 
 void TensorInferencer::processOutput(const InferenceInput &input,
                                      const std::vector<float> &host_output) {
-  int box_step = 85;
-  int num_classes = 80;
-  int num_boxes = static_cast<int>(host_output.size() / box_step);
-
-  const int num_classes = 80;
   const int box_step = 85;
+  const int num_classes = 80;
+  int num_boxes = static_cast<int>(host_output.size() / box_step);
 
   for (int i = 0; i < num_boxes; ++i) {
     const float *det = &host_output[i * box_step];
