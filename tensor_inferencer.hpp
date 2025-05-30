@@ -56,7 +56,8 @@ private:
                      const cv::Mat &raw_img);
   void saveAnnotatedImage(const cv::Mat &raw_img, float x1, float y1, float x2,
                           float y2, float confidence,
-                          const std::string &class_name, int gopIdx);
+                          const std::string &class_name, int gopIdx,
+                          int detection_idx);
   void printEngineInfo();
   float calculateIoU(const Detection &a, const Detection &b);
 };
