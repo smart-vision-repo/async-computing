@@ -54,7 +54,6 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
   }
-
   infer_thread = std::thread([this]() {
     while (!stop_infer_thread) {
       std::unique_lock<std::mutex> lock(infer_mutex);
@@ -100,6 +99,13 @@ bool VideoProcessor::initialize() {
     fmtCtx = nullptr;
     return false;
   }
+
+  AVStream *video_stream = fmtCtx->streams[video_stream_index];
+  AVCodecParameters *codec_params = video_stream->codecpar;
+  frame_width = codec_params->width;
+  frame_heigh = codec_params->height;
+  std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
+            << std::endl;
 
   return true;
 }

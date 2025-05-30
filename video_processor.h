@@ -47,6 +47,8 @@ private:
   std::condition_variable task_cv;
   AVFormatContext *fmtCtx = nullptr;
   int video_stream_index = -1;
+  int frame_width = 0;
+  int frame_heigh = 0;
 };
 
 #endif // VIDEO_PROCESSOR_H
