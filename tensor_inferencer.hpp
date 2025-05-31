@@ -20,15 +20,15 @@ struct Detection {
 
 // 结构体：用于存储单个图像预处理后的元数据 (主要用于letterbox)
 struct BatchImageMetadata {
-  int original_w;                      // 原始图像宽度
-  int original_h;                      // 原始图像高度
-  float scale_to_model;                // 缩放比例 (原始图像到模型输入尺寸)
-  int pad_w_left;                      // 左侧填充宽度
-  int pad_h_top;                       // 顶部填充高度
-  bool is_real_image;                  // 标记是否为真实图像 (非填充)
-  int gopIdx_original;                 // 原始GOP索引，用于回调
-  std::string object_name_original;    // 原始目标名称，用于回调
-  float confidence_thresh_original;    // 原始置信度阈值
+  int original_w;       // 原始图像宽度
+  int original_h;       // 原始图像高度
+  float scale_to_model; // 缩放比例 (原始图像到模型输入尺寸)
+  int pad_w_left;       // 左侧填充宽度
+  int pad_h_top;        // 顶部填充高度
+  bool is_real_image;   // 标记是否为真实图像 (非填充)
+  int gopIdx_original;  // 原始GOP索引，用于回调
+  // std::string object_name_original;    // 原始目标名称，用于回调
+  // float confidence_thresh_original;    // 原始置信度阈值
   cv::Mat original_image_for_callback; // 存储原始图像，用于回调和保存
 };
 
