@@ -4,9 +4,9 @@
 #include "inference.hpp" // Contains InferenceInput and InferenceResult
 #include <functional>    // For std::function
 #include <map>
-#include <mutex>                 // For thread safety
-#include <opencv2/core/cuda.hpp> // For cv::cuda::GpuMat
+#include <mutex> // For thread safety
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/cuda.hpp> // For cv::cuda::GpuMat
 #include <string>
 #include <vector>
 
@@ -28,8 +28,7 @@ struct BatchImageMetadata {
   int pad_h_top = 0;           // 顶部填充高度
   bool is_real_image = false;  // 标记是否为真实图像 (非填充)
   int global_frame_index = 0;
-  cv::Mat original_image_for_callback; // 存储原始图像，用于回调和保存 (cloned
-                                       // from input)
+  cv::Mat original_image_for_callback; // 存储原始图像，用于回调和保存 (cloned from input)
 };
 
 // 新结构体：用于缓存恒定输入图像的几何信息
@@ -69,7 +68,7 @@ private:
   nvinfer1::IRuntime *runtime_ = nullptr;
   nvinfer1::ICudaEngine *engine_ = nullptr;
   nvinfer1::IExecutionContext *context_ = nullptr;
-
+  
   // TensorRT binding info
   int inputIndex_ = -1;
   int outputIndex_ = -1;
@@ -99,15 +98,16 @@ private:
   // Private methods
   void printEngineInfo();
   void performBatchInference(bool pad_batch);
-
+  
   // GPU pre-processing method
   void preprocess_single_image_for_batch(
       const cv::Mat &cpu_img, // Input CPU image
-      BatchImageMetadata &meta, int model_input_w, int model_input_h,
-      cv::cuda::GpuMat
-          &chw_planar_output_gpu_buffer_slice // Wraps a slice of inputDevice_
+      BatchImageMetadata &meta,
+      int model_input_w,
+      int model_input_h,
+      cv::cuda::GpuMat& chw_planar_output_gpu_buffer_slice // Wraps a slice of inputDevice_
   );
-  //
+
   void process_single_output(const BatchImageMetadata &image_meta,
                              const float *host_output_for_image_raw,
                              int num_detections_in_slice,
