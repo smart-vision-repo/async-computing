@@ -208,8 +208,6 @@ int VideoProcessor::process() {
         })) {
       break;
     }
-    std::cerr << "[Waiting] Remaining decode tasks: "
-              << remaining_decode_tasks.load() << std::endl;
   }
 
   for (auto &pkts : all_pkts) {

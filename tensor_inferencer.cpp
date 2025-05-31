@@ -29,7 +29,6 @@ class Logger : public ILogger {
   void log(Severity severity, const char *msg) noexcept override {
     if (severity <=
         Severity::kWARNING) { // Log kINFO, kWARNING, kERROR, kINTERNAL_ERROR
-      // std::cout << "[TRT] " << msg << std::endl;
     }
   }
 } gLogger;
@@ -63,14 +62,8 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       outputDevice_(nullptr),       // Initialize device pointers
       inputSize_(0), outputSize_(0) // Initialize sizes
 {
-  // std::cout << "[INIT] 初始化 TensorInferencer，视频尺寸: " << video_width
-  //           << "x" << video_height << std::endl;
-
   target_w_ = roundToNearestMultiple(video_width, 32);
   target_h_ = roundToNearestMultiple(video_height, 32);
-
-  std::cout << "[INIT] 计算的目标尺寸 (32对齐前): " << target_w_ << "x"
-            << target_h_ << std::endl;
 
   const char *env_path = std::getenv("YOLO_ENGINE_NAME");
   if (!env_path) {
@@ -93,8 +86,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
   image_output_path_ = output_path_env;
 
-  std::cout << "[INIT] 加载引擎文件: " << engine_path_ << std::endl;
-
   auto engineData = readEngineFile(engine_path_);
   if (engineData.empty()) {
     std::cerr << "[ERROR] 无法读取引擎数据." << std::endl;
@@ -107,8 +98,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   assert(engine_ != nullptr && "TensorRT engine deserialization failed.");
   context_ = engine_->createExecutionContext();
   assert(context_ != nullptr && "TensorRT execution context creation failed.");
-
-  std::cout << "[INIT] 引擎加载成功" << std::endl;
 
   bindings_.resize(engine_->getNbBindings()); // Initialize bindings vector
 
@@ -134,9 +123,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       for (int i = 0; i < engine_->getNbBindings(); ++i) {
         if (!engine_->bindingIsInput(i)) {
           tempOutputIndex = i;
-          // std::cout << "[INFO] Found first output tensor '"
-          //           << engine_->getBindingName(i) << "' at index " << i
-          //           << std::endl;
           break;
         }
       }
@@ -155,12 +141,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::exit(EXIT_FAILURE);
   }
 
-  // std::cout << "[INIT] 输入索引 ('images'): " << inputIndex_ << ", 输出索引
-  // ('"
-  //           << engine_->getBindingName(outputIndex_) << "'): " <<
-  //           outputIndex_
-  //           << std::endl;
-
   std::ifstream infile(names_path_str);
   if (!infile.is_open()) {
     std::cerr << "[ERROR] 无法打开类别文件: " << names_path_str << std::endl;
@@ -177,14 +157,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     }
   }
   num_classes_ = class_name_to_id_.size(); // Store number of classes
-
-  // std::cout << "[INIT] 加载了 " << num_classes_ << " 个类别" << std::endl;
-  // if (class_name_to_id_.count("dog")) {
-  //   std::cout << "[INIT] dog 类别ID: " << class_name_to_id_["dog"] <<
-  //   std::endl;
-  // } else {
-  //   std::cout << "[WARN] 'dog' 类别未在COCO names文件中找到!" << std::endl;
-  // }
 
   // This part keeps your "original input logic" for target_w_ and target_h_
   Dims reportedInputDims = engine_->getBindingDimensions(inputIndex_);
@@ -205,20 +177,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       // opt)
       target_h_ = reportedInputDims.d[2];
       target_w_ = reportedInputDims.d[3];
-      // std::cout << "[INIT] 使用引擎优化配置文件中的尺寸 (profile 0 opt): "
-      //           << target_w_ << "x" << target_h_ << std::endl;
-    } else {
-      // std::cout << "[INIT] 引擎输入维度是动态的或无效 ("
-      //           << reportedInputDims.d[2] << "x" << reportedInputDims.d[3]
-      //           << "), 将使用基于视频尺寸计算的目标尺寸: " << target_w_ <<
-      //           "x"
-      //           << target_h_ << std::endl;
     }
-  } else {
-    // std::cout
-    //     << "[INIT] 无法获取引擎固定输入维度,
-    //     将使用基于视频尺寸计算的目标尺寸: "
-    //     << target_w_ << "x" << target_h_ << std::endl;
   }
 
   // Ensure input data type is FP32 as confirmed by trtexec
@@ -228,10 +187,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
               << "' 不是期望的 DataType::kFLOAT!" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  // std::cout << "[INFO] 引擎输入张量 '" <<
-  // engine_->getBindingName(inputIndex_)
-  //           << "' 确认是 DataType::kFLOAT." << std::endl;
-
   // Pre-allocate GPU memory if target_w_ and target_h_ are now considered fixed
   // For simplicity in this revision, keeping allocation in infer(), but this is
   // an optimization point.
@@ -347,9 +302,6 @@ bool TensorInferencer::infer(const std::vector<float> &input,
 }
 
 bool TensorInferencer::infer(const InferenceInput &input) {
-  // std::cout << "[INFER] 开始推理，GOP: " << input.gopIdx
-  //           << ", 目标物体: " << input.object_name << std::endl;
-
   if (input.decoded_frames.empty()) {
     std::cerr << "[ERROR] 没有输入帧" << std::endl;
     return false;
@@ -360,12 +312,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     std::cerr << "[ERROR] 输入图像为空" << std::endl;
     return false;
   }
-
-  // std::cout << "[INFER] 原始图像尺寸: " << raw_img.cols << "x" <<
-  // raw_img.rows
-  //           << std::endl;
-  // std::cout << "[INFER] 预处理目标尺寸: " << target_w_ << "x" << target_h_
-  //           << std::endl;
 
   // --- 图像预处理 ---
   cv::Mat resized_direct_img; // Renamed to avoid confusion with letterboxed
@@ -401,9 +347,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       }
     }
   }
-  // std::cout << "[INFER] 图像预处理完成 (RGB, Planar, Normalized FP32)"
-  //           << std::endl;
-
   // --- 设置动态输入尺寸 ---
   Dims inputDimsRuntime{4, {1, 3, h, w}}; // batch_size=1
   if (!context_->setBindingDimensions(inputIndex_, inputDimsRuntime)) {
@@ -411,8 +354,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     //           << std::endl;
     return false; // Critical error
   }
-  // std::cout << "[INFER] 输入绑定维度已设置为: 1x3x" << h << "x" << w <<
-  // std::endl;
 
   if (!context_->allInputDimensionsSpecified()) {
     std::cerr << "[ERROR] 非所有输入维度都已指定 (可能是多输入模型问题)"
@@ -423,10 +364,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   // --- 计算输出大小 (基于当前上下文的绑定维度) ---
   Dims outDims = context_->getBindingDimensions(outputIndex_);
   size_t current_output_size_elements = 1;
-  // std::cout << "[INFER] 输出张量 '" << engine_->getBindingName(outputIndex_)
-  //           << "' 运行时维度: ";
   for (int i = 0; i < outDims.nbDims; ++i) {
-    // std::cout << outDims.d[i] << (i == outDims.nbDims - 1 ? "" : "x");
     if (outDims.d[i] <=
         0) { // Should not happen after setBindingDimensions if engine is valid
       std::cerr << "\n[ERROR] 输出维度无效: " << outDims.d[i] << " at index "
@@ -435,7 +373,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     }
     current_output_size_elements *= outDims.d[i];
   }
-  std::cout << std::endl;
 
   if (num_classes_ <= 0 || outDims.d[1] != (4 + num_classes_)) {
     std::cerr << "[ERROR] 输出维度属性与类别数不匹配. Outdim[1]="
@@ -472,8 +409,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
-  // std::cout << "[INFER] GPU内存分配完成. Input bytes: " << input_size_bytes
-  // << ", Output bytes: " << output_size_bytes << std::endl;
 
   // --- 执行推理 ---
   err = cudaMemcpy(inputDevice_, input_data.data(), input_size_bytes,
@@ -499,7 +434,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     return false;
   }
 
-  // std::cout << "[INFER] 输出数据拷贝完成，开始处理结果" << std::endl;
   processOutput(input, host_output_raw, raw_img, outDims); // Pass outDims
   return true;
 }
@@ -538,10 +472,6 @@ void TensorInferencer::processOutput(
                           det_idx];
     }
   }
-  // std::cout << "[OUTPUT] Output transposed. Num_detections_from_engine: " <<
-  // num_detections_from_engine
-  //           << ", Num_attributes_from_engine: " << num_attributes_from_engine
-  //           << std::endl;
 
   auto it = class_name_to_id_.find(input.object_name);
   if (it == class_name_to_id_.end()) {
@@ -550,12 +480,9 @@ void TensorInferencer::processOutput(
     return;
   }
   int target_class_id = it->second;
-  // std::cout << "[OUTPUT] 目标类别ID: " << target_class_id << std::endl;
 
   float confidence_threshold = std::max(
       0.1f, input.confidence_thresh); // Ensure a minimum sensible threshold
-  // std::cout << "[OUTPUT] 使用置信度阈值: " << confidence_threshold <<
-  // std::endl;
 
   std::vector<Detection>
       detected_objects; // Renamed from 'detections' to avoid conflict
@@ -593,21 +520,12 @@ void TensorInferencer::processOutput(
       if (x2 > x1 && y2 > y1) { // Ensure valid box
         Detection detection = {x1, y1, x2, y2, max_score, best_class_id};
         detected_objects.push_back(detection);
-
-        //   std::cout << "[DETECTION] 发现 " << input.object_name
-        //             << "! GOP: " << input.gopIdx << ", 置信度: " << max_score
-        //             << ", 模型坐标框: (" << x1 << "," << y1 << "," << x2 <<
-        //             "," << y2
-        //             << ")" << std::endl;
       }
     }
   }
 
   std::vector<Detection> nms_detections =
       applyNMS(detected_objects, 0.45f); // Using 0.45 IoU for NMS
-  // std::cout << "[NMS] " << input.object_name
-  //           << ": 原始检测数=" << detected_objects.size()
-  //           << ", NMS后剩余=" << nms_detections.size() << std::endl;
 
   for (size_t i = 0; i < nms_detections.size(); ++i) {
     const auto &det = nms_detections[i];
@@ -615,11 +533,6 @@ void TensorInferencer::processOutput(
     saveAnnotatedImage(raw_img, det.x1, det.y1, det.x2, det.y2, det.confidence,
                        input.object_name, input.gopIdx, static_cast<int>(i));
   }
-
-  // if (nms_detections.empty()) {
-  //   std::cout << "[INFO] 未检测到 '" << input.object_name
-  //             << "' (GOP: " << input.gopIdx << ") 满足条件." << std::endl;
-  // }
 }
 
 // calculateIoU and applyNMS (no changes from your original, assuming Detection
@@ -678,13 +591,6 @@ void TensorInferencer::saveAnnotatedImage(
     const cv::Mat &raw_img, float x1_model, float y1_model, float x2_model,
     float y2_model, float confidence, const std::string &class_name, int gopIdx,
     int detection_idx) { // Added detection_idx
-  // std::cout << "[SAVE] 准备保存标注图像 for detection_idx " << detection_idx
-  // << std::endl; std::cout << "[SAVE] 类别: " << class_name << ", 置信度: " <<
-  // confidence << std::endl; std::cout << "[SAVE] 原图尺寸: " << raw_img.cols
-  // << "x" << raw_img.rows << std::endl; std::cout << "[SAVE] 检测框(模型坐标 "
-  // << target_w_ << "x" << target_h_ << "): ("
-  //           << x1_model << "," << y1_model << ") - (" << x2_model << "," <<
-  //           y2_model << ")" << std::endl;
 
   cv::Mat img_to_save = raw_img.clone();
 
@@ -700,11 +606,6 @@ void TensorInferencer::saveAnnotatedImage(
   int y1_scaled = static_cast<int>(std::round(y1_model * scale_y));
   int x2_scaled = static_cast<int>(std::round(x2_model * scale_x));
   int y2_scaled = static_cast<int>(std::round(y2_model * scale_y));
-
-  // std::cout << "[SAVE] 缩放比例: " << scale_x << "x" << scale_y << std::endl;
-  // std::cout << "[SAVE] 映射后框(原图坐标): (" << x1_scaled << "," <<
-  // y1_scaled << ") - ("
-  //           << x2_scaled << "," << y2_scaled << ")" << std::endl;
 
   // Boundary check
   x1_scaled = std::max(0, std::min(x1_scaled, raw_img.cols - 1));
