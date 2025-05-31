@@ -72,6 +72,11 @@ void VideoProcessor::initInferThead() {
         // inferencer.infer(input);
         if (tensor_inferencer) {
           tensor_inferencer->infer(input);
+          {
+            std::lock_guard<std::mutex> lock(pending_infer_mutex);
+            pending_infer_tasks++;
+          }
+          pending_infer_cv.notify_all();
         }
         lock.lock();
       }
@@ -82,13 +87,14 @@ void VideoProcessor::initInferThead() {
 void VideoProcessor::handleInferenceResult(
     const std::vector<InferenceResult> &result) {
   {
-    std::lock_guard<std::mutex> lock(infer_mutex);
-    remaining_infer_tasks--;
+    std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    pending_infer_tasks -= BATCH_SIZE_;
   }
-  infer_cv.notify_all();
+  pending_infer_cv.notify_all();
 }
 
 bool VideoProcessor::initialize() {
+  setBatchSize();
   const char *video_file_path = video_file_name.c_str();
   if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
     std::cerr << "Could not open video file: " << video_file_path << std::endl;
@@ -229,9 +235,9 @@ int VideoProcessor::process() {
   }
 
   while (true) {
-    std::unique_lock<std::mutex> lock(infer_mutex);
-    if (infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          return remaining_infer_tasks.load() == 0;
+    std::unique_lock<std::mutex> lock(pending_infer_mutex);
+    if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
+          return pending_infer_tasks.load() <= 0;
         })) {
       break;
     }
@@ -317,4 +323,32 @@ void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *pkts) {
     }
   }
   pkts->clear();
+}
+
+void VideoProcessor ::setBatchSize() {
+
+  const char *env_batch_size_str = std::getenv("YOLO_BATCH_SIZE");
+  if (env_batch_size_str) {
+    try {
+      BATCH_SIZE_ = std::stoi(env_batch_size_str);
+      if (BATCH_SIZE_ <= 0) {
+        std::cerr << "[错误] BATCH_SIZE 环境变量值 (" << env_batch_size_str
+                  << ") 无效。必须为正整数。将使用默认值 1。" << std::endl;
+        BATCH_SIZE_ = 1;
+      }
+    } catch (const std::invalid_argument &ia) {
+      std::cerr << "[错误] BATCH_SIZE 环境变量值 (" << env_batch_size_str
+                << ") 无效。无法转换为整数。将使用默认值 1。" << std::endl;
+      BATCH_SIZE_ = 1;
+    } catch (const std::out_of_range &oor) {
+      std::cerr << "[错误] BATCH_SIZE 环境变量值 (" << env_batch_size_str
+                << ") 超出范围。将使用默认值 1。" << std::endl;
+      BATCH_SIZE_ = 1;
+    }
+  } else {
+    std::cerr << "[警告] 未设置 BATCH_SIZE 环境变量。将使用默认值 1。"
+              << std::endl;
+    BATCH_SIZE_ = 1;
+  }
+  std::cout << "[初始化] 使用 BATCH_SIZE: " << BATCH_SIZE_ << std::endl;
 }
