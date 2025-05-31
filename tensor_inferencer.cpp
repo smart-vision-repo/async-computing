@@ -320,11 +320,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   meta.confidence_thresh_original = input.confidence_thresh;
   current_batch_metadata_.push_back(meta);
 
-  std::cout << "[Infer] 收到输入 GOP: " << input.gopIdx
-            << ", 目标: " << input.object_name
-            << ". 当前批次大小: " << current_batch_inputs_.size() << "/"
-            << BATCH_SIZE_ << std::endl;
-
   if (current_batch_inputs_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
     std::cout << "[Infer] 批次已满。执行推理..." << std::endl;
     performBatchInference(false);
@@ -587,11 +582,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  std::cout << "[PerformBatch] 批处理推理完成，包含 "
-            << NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH
-            << " 个真实输入 (GPU批处理大小 " << ACTUAL_BATCH_SIZE_FOR_GPU
-            << ")." << std::endl;
-
   std::vector<InferenceResult> batch_inference_results;
   std::vector<InferenceInput> original_inputs_for_callback;
 
@@ -695,10 +685,6 @@ void TensorInferencer::process_single_output(
   }
   int target_class_id = it->second;
   float confidence_threshold = original_input_param.confidence_thresh;
-  std::cout << "[DEBUG_SINGLE_OUTPUT] 图像 " << original_batch_idx_for_debug
-            << " (GOP: " << original_input_param.gopIdx
-            << "): 使用置信度阈值: " << confidence_threshold << " 用于目标 '"
-            << original_input_param.object_name << "'" << std::endl;
 
   std::vector<Detection> detected_objects;
   for (int i = 0; i < num_detections_in_slice; ++i) {
@@ -735,15 +721,8 @@ void TensorInferencer::process_single_output(
   }
 
   std::vector<Detection> nms_detections = applyNMS(detected_objects, 0.45f);
-  std::cout << "[NMS_SINGLE] 图像 " << original_batch_idx_for_debug << " 对于 '"
-            << original_input_param.object_name
-            << "': NMS前=" << detected_objects.size()
-            << ", NMS后=" << nms_detections.size() << std::endl;
 
   if (nms_detections.empty() && image_meta.is_real_image) {
-    std::cout << "[INFO_SINGLE] 图像 " << original_batch_idx_for_debug
-              << ": 未找到满足条件的 '" << original_input_param.object_name
-              << "' (GOP: " << original_input_param.gopIdx << ")." << std::endl;
     InferenceResult res;
     res.info = "GOP " + std::to_string(original_input_param.gopIdx) + ": No '" +
                original_input_param.object_name +

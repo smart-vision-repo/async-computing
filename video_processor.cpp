@@ -81,7 +81,11 @@ void VideoProcessor::initInferThead() {
 
 void VideoProcessor::handleInferenceResult(
     const std::vector<InferenceResult> &result) {
-  std::cout << "[CALLBACK] 推理完成: " << std::endl;
+  {
+    std::lock_guard<std::mutex> lock(infer_mutex);
+    remaining_infer_tasks--;
+  }
+  task_cv.notify_all()
 }
 
 bool VideoProcessor::initialize() {
@@ -217,13 +221,15 @@ int VideoProcessor::process() {
   while (true) {
     std::unique_lock<std::mutex> lock(task_mutex);
     if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          return remaining_decode_tasks.load() == 0;
+          if (remaining_decode_tasks.load == 0) {
+            tensor_inferencer->finalizeInference();
+          }
+          return remaining_decode_tasks.load() == 0 &&
+                 remaining_infer_tasks.load() == 0;
         })) {
       break;
     }
   }
-
-  tensor_inferencer->finalizeInference();
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
