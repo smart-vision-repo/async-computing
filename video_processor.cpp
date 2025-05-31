@@ -246,7 +246,7 @@ int VideoProcessor::process() {
   return 0;
 }
 
-void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
+void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
   std::cout << gopId << "," << frames.size() << std::endl;
   // InferenceInput input;
   // input.decoded_frames = std::move(frames);
