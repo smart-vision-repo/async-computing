@@ -33,8 +33,8 @@ struct BatchImageMetadata {
 };
 
 // 推理回调函数类型
-using InferenceCallback = std::function <
-                          void(const std::vector<InferenceResult> &results);
+using InferenceCallback =
+    std::function<void(const std::vector<InferenceResult> &results)>;
 
 class TensorInferencer {
 public:
