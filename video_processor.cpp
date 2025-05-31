@@ -57,33 +57,6 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
   }
 }
 
-void VideoProcessor::initInferThead() {
-  infer_thread = std::thread([this]() {
-    while (!stop_infer_thread) {
-      std::unique_lock<std::mutex> lock(infer_mutex);
-      infer_cv.wait(lock, [this]() {
-        return !infer_inputs.empty() || stop_infer_thread;
-      });
-
-      while (!infer_inputs.empty()) {
-        InferenceInput input = std::move(infer_inputs.front());
-        infer_inputs.pop();
-        lock.unlock();
-        // inferencer.infer(input);
-        if (tensor_inferencer) {
-          tensor_inferencer->infer(input);
-          {
-            std::lock_guard<std::mutex> lock(pending_infer_mutex);
-            pending_infer_tasks++;
-          }
-          pending_infer_cv.notify_all();
-        }
-        lock.lock();
-      }
-    }
-  });
-}
-
 void VideoProcessor::handleInferenceResult(
     const std::vector<InferenceResult> &result) {
   {
@@ -276,13 +249,12 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   input.object_name = object_name;
   input.confidence_thresh = confidence;
   input.gopIdx = gopId;
+  tensor_inferencer->infer(input);
   {
-    std::lock_guard<std::mutex> lock(infer_mutex);
-    infer_inputs.push(std::move(input));
-    remaining_infer_tasks++;
+    std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    pending_infer_tasks++;
   }
-  infer_cv.notify_all();
-
+  pending_infer_cv.notify_all();
   {
     std::lock_guard<std::mutex> lock(task_mutex);
     remaining_decode_tasks--;

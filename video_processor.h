@@ -25,7 +25,6 @@ public:
 
 private:
   bool initialize();
-  void initInferThead();
   void handleInferenceResult(const std::vector<InferenceResult> &result);
   void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
@@ -43,9 +42,7 @@ private:
   int interval;
   int success_decoded_frames;
   std::queue<InferenceInput> infer_inputs;
-  std::mutex infer_mutex;
   std::mutex pending_infer_mutex;
-  std::condition_variable infer_cv;
   std::condition_variable pending_infer_cv;
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
@@ -53,7 +50,6 @@ private:
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
-  std::atomic<int> remaining_infer_tasks{0};
   std::atomic<int> pending_infer_tasks{0};
   std::mutex task_mutex;
   std::condition_variable task_cv;
