@@ -14,12 +14,12 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-using DecodeCallback =
+using DecoderCallback =
     std::function<void(std::vector<cv::Mat> &frames, int gopId)>;
 
 class PacketDecoder {
 public:
-  PacketDecoder(std::string video_file_name, DecodeCallback callback);
+  PacketDecoder(std::string video_file_name, DecoderCallback callback);
   ~PacketDecoder();
 
   void decode(const std::vector<AVPacket *> &pkts, int interval, int gopId);
@@ -43,7 +43,7 @@ private:
   std::mutex queueMutex;
   std::condition_variable queueCond;
   bool stopThreads;
-  DecodeCallback callback;
+  DecoderCallback callback;
 
   void workerLoop();
   AVCodecContext *cloneDecoderContext();

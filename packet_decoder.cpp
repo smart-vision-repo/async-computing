@@ -9,7 +9,7 @@ extern "C" {
 }
 
 PacketDecoder::PacketDecoder(std::string video_file_name,
-                             DecodeCallback callback)
+                             DecoderCallback callback)
     : video_file_name(video_file_name), callback(callback), vidIdx(-1),
       fmtCtx(nullptr), codec(nullptr), codecpar(nullptr), stopThreads(false) {
   if (!initialize()) {

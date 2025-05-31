@@ -59,7 +59,7 @@ private:
   int frame_heigh = 0;
   int BATCH_SIZE_ = 1; // 从环
   InferenceCallback infer_callback;
-  DecodeCallback docoder_callback;
+  DecoderCallback docoder_callback;
 };
 
 #endif // VIDEO_PROCESSOR_H
