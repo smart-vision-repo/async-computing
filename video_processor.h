@@ -39,10 +39,14 @@ private:
   std::string object_name;
   float confidence;
   int interval;
-  std::queue<InferenceInput> infer_inputs;
+  std::queue<InferenceInput>
+      infer_inputs; // This member seems unused in the provided logic. Consider
+                    // removing if not needed.
   std::mutex pending_infer_mutex;
   std::condition_variable pending_infer_cv;
-  std::thread infer_thread;
+  std::thread
+      infer_thread; // This member seems uninitialized and unused. Consider
+                    // removing if not needed or implement its usage.
   std::atomic<bool> stop_infer_thread;
   // YoloInferencer inferencer;
   std::optional<PacketDecoder> decoder;
@@ -57,7 +61,7 @@ private:
   int video_stream_index = -1;
   int frame_width = 0;
   int frame_heigh = 0;
-  int BATCH_SIZE_ = 1; // 从环
+  int BATCH_SIZE_ = 1;
   InferenceCallback infer_callback;
   DecoderCallback docoder_callback;
 };
