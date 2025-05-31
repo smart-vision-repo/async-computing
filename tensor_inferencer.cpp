@@ -8,20 +8,6 @@
 #include <iostream>
 #include <numeric> // For std::iota if needed, not used here but good include for vector ops
 
-// Forward declaration for Detection struct if not in .hpp, assuming it's like
-// this: struct Detection {
-//    float x1, y1, x2, y2, confidence;
-//    int class_id;
-// };
-// Make sure this matches the definition used by applyNMS and processOutput.
-// Based on your applyNMS, it seems it is:
-// struct Detection {
-//    float x1, y1, x2, y2; // Coordinates
-//    float confidence;    // Confidence score
-//    int class_id;        // Class ID
-// };
-// Let's assume this struct is defined in tensor_inferencer.hpp
-
 using namespace nvinfer1;
 
 // Logger class (no changes from your original)
