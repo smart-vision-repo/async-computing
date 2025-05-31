@@ -244,23 +244,20 @@ int VideoProcessor::process() {
       std::cout << "\nAll decode tasks completed." << std::endl;
       tensor_inferencer->finalizeInference();
 
-      // while (true) {
-      //   std::unique_lock<std::mutex> infer_lock(
-      //       pending_infer_mutex); // Use a different lock variable name
-      //   if (pending_infer_cv.wait_for(infer_lock, std::chrono::seconds(2),
-      //                                 [this]() {
-      //                                   std::cout << "\rRemaining infer
-      //                                   tasks: "
-      //                                             <<
-      //                                             pending_infer_tasks.load()
-      //                                             << "    " << std::flush;
-      //                                   return pending_infer_tasks.load() <=
-      //                                   0;
-      //                                 })) {
-      //     std::cout << "\nAll inference tasks completed." << std::endl;
-      //     break;
-      //   }
-      // }
+      while (true) {
+        std::unique_lock<std::mutex> infer_lock(
+            pending_infer_mutex); // Use a different lock variable name
+        if (pending_infer_cv.wait_for(infer_lock, std::chrono::seconds(2),
+                                      [this]() {
+                                        std::cout << "\rRemaining infer tasks: "
+                                                  << pending_infer_tasks.load()
+                                                  << "    " << std::flush;
+                                        return pending_infer_tasks.load() <= 0;
+                                      })) {
+          std::cout << "\nAll inference tasks completed." << std::endl;
+          break;
+        }
+      }
       break;
     }
   }
@@ -304,23 +301,19 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
                                int gopId) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
-  // if (num_decoded_this_call > 0) {
-  //   // std::cout << "onDecoded - GOP ID: " << gopId << ", Frames Decoded: "
-  //   <<
-  //   // num_decoded_this_call << std::endl; // Debug log
-  //   InferenceInput input;
-  //   input.decoded_frames =
-  //       std::move(received_frames); // 'received_frames' is now empty or in a
-  //                                   // valid but unspecified state
-  //   input.latest_frame_index = gopId;
-  //   tensor_inferencer->infer(input);
-
-  //   {
-  //     std::lock_guard<std::mutex> lock(pending_infer_mutex);
-  //     pending_infer_tasks++;
-  //   }
-  //   pending_infer_cv.notify_all();
-  // }
+  if (num_decoded_this_call > 0) {
+    InferenceInput input;
+    input.decoded_frames =
+        std::move(received_frames); // 'received_frames' is now empty or in a
+                                    // valid but unspecified state
+    input.latest_frame_index = gopId;
+    tensor_inferencer->infer(input);
+    {
+      std::lock_guard<std::mutex> lock(pending_infer_mutex);
+      pending_infer_tasks++;
+    }
+    pending_infer_cv.notify_all();
+  }
 
   {
     std::lock_guard<std::mutex> lock(task_mutex);
@@ -365,8 +358,6 @@ std::vector<AVPacket *> VideoProcessor::get_packets_for_decoding(
     } else {
       std::cerr << "Failed to clone AVPacket in get_packets_for_decoding"
                 << std::endl;
-      // Potentially break or handle error, for now, it continues and might
-      // return fewer packets
     }
   }
   return results;
