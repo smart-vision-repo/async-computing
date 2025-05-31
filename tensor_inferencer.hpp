@@ -20,15 +20,15 @@ struct Detection {
 
 // 结构体：用于存储单个图像预处理后的元数据 (主要用于letterbox)
 struct BatchImageMetadata {
-  int original_w;       // 原始图像宽度
-  int original_h;       // 原始图像高度
-  float scale_to_model; // 缩放比例 (原始图像到模型输入尺寸)
-  int pad_w_left;       // 左侧填充宽度
-  int pad_h_top;        // 顶部填充高度
-  bool is_real_image;   // 标记是否为真实图像 (非填充)
-  int gopIdx_original;  // 原始GOP索引，用于回调
-  // std::string object_name_original;    // 原始目标名称，用于回调
-  // float confidence_thresh_original;    // 原始置信度阈值
+  int original_w;                      // 原始图像宽度
+  int original_h;                      // 原始图像高度
+  float scale_to_model;                // 缩放比例 (原始图像到模型输入尺寸)
+  int pad_w_left;                      // 左侧填充宽度
+  int pad_h_top;                       // 顶部填充高度
+  bool is_real_image;                  // 标记是否为真实图像 (非填充)
+  int gopIdx_original;                 // 原始GOP索引，用于回调
+  // std::string object_name_original;    // Removed
+  // float confidence_thresh_original;    // Removed
   cv::Mat original_image_for_callback; // 存储原始图像，用于回调和保存
 };
 
@@ -63,9 +63,9 @@ private:
   int target_w_; // 模型输入宽度 (从引擎或计算得出)
   int target_h_; // 模型输入高度 (从引擎或计算得出)
 
-  std::string object_name_;
+  std::string object_name_; // Value from constructor
   int interval_ = 0;
-  float confidence_ = 0.5f;
+  float confidence_;      // Value from constructor
 
   int inputIndex_ = -1;
   int outputIndex_ = -1;
@@ -98,14 +98,14 @@ private:
 
   // 处理单个图像的推理输出 (在批处理上下文中)
   void process_single_output(
-      const InferenceInput &original_input_param, // 原始的单个输入参数
+      const InferenceInput &original_input_param, // Original input params (gopIdx primarily now)
       const float *host_output_for_image_raw, // 指向该图像原始输出数据的指针
       int num_detections_in_slice,            // 模型输出中该图像的检测数量
       int num_attributes_per_detection,       // 每个检测的属性数量
       const cv::Mat &raw_img_for_saving,      // 用于保存的原始图像
       const BatchImageMetadata &image_meta,   // 该图像的元数据
       int original_batch_idx_for_debug,       // 调试用的原始批处理索引
-      std::vector<InferenceResult> &batch_results // 收集该图像的推理结果
+      std::vector<InferenceResult> &single_image_results // 收集该图像的推理结果
   );
 
   std::vector<Detection> applyNMS(const std::vector<Detection> &detections,
@@ -116,7 +116,8 @@ private:
   void saveAnnotatedImage(const cv::Mat &raw_img_for_saving,
                           const Detection &det,
                           const BatchImageMetadata &image_meta,
-                          const std::string &class_name_str, int gopIdx,
+                          // const std::string &class_name_str, // Will use this->object_name_
+                          int gopIdx,
                           int detection_idx_in_image // 该图像内的检测索引
   );
 
