@@ -244,7 +244,8 @@ int VideoProcessor::process() {
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
-  std::cout << gopId << "," << frames->size() << std::endl;
+
+  std::cout << gopId << "," << frames.size() << std::endl;
   // InferenceInput input;
   // input.decoded_frames = std::move(frames);
   // input.object_name = object_name;
@@ -258,8 +259,8 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
   // pending_infer_cv.notify_all();
   {
     std::lock_guard<std::mutex> lock(task_mutex);
-    total_decoded_frames += frames->size();
-    remaining_decode_tasks -= frames->size();
+    total_decoded_frames += frames.size();
+    remaining_decode_tasks -= frames.size();
   }
   task_cv.notify_all();
 }
