@@ -208,6 +208,9 @@ int VideoProcessor::process() {
         })) {
       break;
     }
+    std::cout << "Remaining decode tasks: " << remaining_decode_tasks.load()
+              << ", Remaining infer tasks: " << remaining_infer_tasks.load()
+              << "\r" << std::flush;
   }
 
   for (auto &pkts : all_pkts) {
@@ -246,6 +249,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   {
     std::lock_guard<std::mutex> lock(infer_mutex);
     infer_inputs.push(std::move(input));
+    remaining_infer_tasks++;
   }
   infer_cv.notify_all();
   {

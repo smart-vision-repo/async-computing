@@ -47,6 +47,7 @@ private:
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
+  std::atomic<int> remaining_infer_tasks{0};
   std::mutex task_mutex;
   std::condition_variable task_cv;
   AVFormatContext *fmtCtx = nullptr;
