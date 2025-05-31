@@ -567,3 +567,12 @@ int main(int argc, char **argv) {
 
   // --- Cleanup ---
   cudaFree(buffers[input_idx]);
+  cudaFree(buffers[output_idx]);
+  cudaStreamDestroy(stream);
+  context->destroy();
+  engine->destroy();
+  runtime->destroy();
+
+  std::cout << "INFO: All processing finished." << std::endl;
+  return 0;
+}
