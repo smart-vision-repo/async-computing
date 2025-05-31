@@ -63,9 +63,6 @@ void loadEnvFile() {
             << std::endl;
 }
 
-// Load environment variables from .env file
-loadEnvFile(".env");
-
 int main(int argc, char *argv[]) {
   if (!validateArguments(argc, argv)) {
     return 1;
