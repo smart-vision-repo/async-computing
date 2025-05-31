@@ -102,7 +102,7 @@ bool VideoProcessor::initialize() {
   }
 
   docoder_callback = [this](std::vector<cv::Mat> &&frames, int gopId) {
-    this->onDecodedresult(frames, gopId);
+    this->onDecoded(frames, gopId);
   };
   decoder.emplace(video_file_name, docoder_callback);
 
