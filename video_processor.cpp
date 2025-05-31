@@ -221,10 +221,9 @@ int VideoProcessor::process() {
         })) {
       break;
     }
-    std::cout << "Remaining decode tasks: " << remaining_decode_tasks.load()
-              << ", Remaining infer tasks: " << remaining_infer_tasks.load()
-              << "\r" << std::flush;
   }
+
+  tensor_inferencer.finalizeInference();
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
