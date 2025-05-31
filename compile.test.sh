@@ -33,7 +33,7 @@ check_gpp() {
 
 # Setup environment variables and compile
 compile() {
-    local output_name="app_tensor_inferencer"
+    local output_name="app_test"
     local src_files=(
         test.cpp
     )
