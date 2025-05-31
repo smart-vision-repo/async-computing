@@ -107,7 +107,7 @@ private:
       cv::cuda::GpuMat
           &chw_planar_output_gpu_buffer_slice // Wraps a slice of inputDevice_
   );
-
+  //
   void process_single_output(const BatchImageMetadata &image_meta,
                              const float *host_output_for_image_raw,
                              int num_detections_in_slice,
