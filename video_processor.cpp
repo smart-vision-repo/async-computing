@@ -202,20 +202,19 @@ int VideoProcessor::process() {
           return remaining_decode_tasks.load() == 0;
         })) {
       tensor_inferencer->finalizeInference();
+      while (true) {
+        std::unique_lock<std::mutex> lock(pending_infer_mutex);
+        if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
+              std::cout << "\rRemaining infer tasks: "
+                        << remaining_decode_tasks.load() << std::flush;
+              return pending_infer_tasks.load() <= 0;
+            })) {
+          break;
+        }
+      }
       break;
     }
   }
-
-  // while (true) {
-  //   std::unique_lock<std::mutex> lock(pending_infer_mutex);
-  //   if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-  //         std::cout << "\rRemaining infer tasks: "
-  //                   << remaining_decode_tasks.load() << std::flush;
-  //         return pending_infer_tasks.load() <= 0;
-  //       })) {
-  //     break;
-  //   }
-  // }
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
