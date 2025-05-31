@@ -7,15 +7,6 @@
 #include <string>
 #include <vector>
 
-// Forward declare or define InferenceInput if not already present
-struct InferenceInput {
-  std::vector<cv::Mat> decoded_frames;
-  int gopIdx;
-  std::string object_name;
-  float confidence_thresh;
-  // Add other members if present in your actual struct
-};
-
 // Define your Detection struct (used by processOutput and NMS)
 struct Detection {
   float x1, y1, x2, y2; // Coordinates (top-left x, top-left y, bottom-right x,
