@@ -233,38 +233,33 @@ int VideoProcessor::process() {
   }
   skipped_frames += pool; // Add final pool to skipped frames
 
-  // Wait for all decoding and inference tasks to complete
-  while (true) {
-    std::unique_lock<std::mutex> lock(task_mutex);
-    if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          std::cout << "\rRemaining decode tasks: "
-                    << remaining_decode_tasks.load() << "   " << std::flush;
-          return remaining_decode_tasks.load() == 0;
-        })) {
-      std::cout << "\nAll decode tasks completed." << std::endl;
-      tensor_inferencer->finalizeInference();
+  // Wait for all decoding and inference tasks to complete using a single lock
+  // and CV
+  std::cout << "\nWaiting for all tasks to complete..." << std::endl;
+  std::unique_lock<std::mutex> lock(
+      task_mutex); // Use task_mutex for both conditions
 
-      // while (true) {
-      //   std::unique_lock<std::mutex> infer_lock(
-      //       pending_infer_mutex); // Use a different lock variable name
-      //   if (pending_infer_cv.wait_for(infer_lock, std::chrono::seconds(2),
-      //                                 [this]() {
-      //                                   std::cout << "\rRemaining infer
-      //                                       tasks : "
-      //                                             <<
-      //                                             pending_infer_tasks.load()
-      //                                             << "    "
-      //                                             << std::flush;
-      //                                   return pending_infer_tasks.load() <=
-      //                                   0;
-      //                                 })) {
-      //     std::cout << "\nAll inference tasks completed." << std::endl;
-      //     break;
-      //   }
-      // }
-      break;
-    }
-  }
+  // Wait until remaining_decode_tasks is 0
+  task_cv.wait(lock, [this]() {
+    std::cout << "\rWaiting for decode tasks: " << remaining_decode_tasks.load()
+              << "   " << std::flush;
+    return remaining_decode_tasks.load() == 0;
+  });
+
+  std::cout << "\nAll decode tasks completed." << std::endl;
+  tensor_inferencer->finalizeInference(); // Call finalizeInference() only once
+
+  // Now wait until pending_infer_tasks is also 0
+  // The lock is already held.
+  task_cv.wait(lock, [this]() { // Reuse the same condition variable
+    std::cout << "\rWaiting for inference tasks: " << pending_infer_tasks.load()
+              << "   " << std::flush;
+    return pending_infer_tasks.load() <= 0;
+  });
+
+  std::cout << "\nAll inference tasks completed." << std::endl;
+  lock.unlock(); // Explicitly unlock before continuing, or let destructor do
+                 // it.
 
   // Cleanup all stored packets
   for (auto &pkt_list : all_pkts) {
