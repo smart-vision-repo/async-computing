@@ -34,7 +34,7 @@ private:
   get_packets_for_decoding(std::vector<AVPacket *> *packages,
                            int last_frame_index);
 
-  setBatchSize();
+  void setBatchSize();
   void clear_av_packets(std::vector<AVPacket *> *packages);
   PacketDecoder decoder;
   std::string video_file_name;
