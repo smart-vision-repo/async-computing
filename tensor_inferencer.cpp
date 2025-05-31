@@ -2,6 +2,7 @@
 #include "inference.hpp" // For InferenceInput, InferenceResult (corrected from .cpp)
 
 #include <algorithm>  // For std::sort, std::max, std::min, std::transform
+#include <atomic>     // For std::atomic_bool
 #include <cassert>    // For assert
 #include <cmath>      // For std::round, std::fabs
 #include <cstdlib>    // For std::getenv, std::exit, std::stoi
@@ -21,21 +22,15 @@
 using namespace nvinfer1;
 
 // Local Detection struct (as it's not in the provided .hpp but needed for
-// processing)
-struct Detection {
-  float x1, y1, x2, y2; // Bounding box coordinates (relative to model input
-                        // size target_w_, target_h_)
-  float confidence;
-  int class_id;
-  // int batch_slot_idx; // Not strictly needed here if processing image by
-  // image from batch output
-};
+// processing) This is already defined in the HPP now. struct Detection {
+//     float x1, y1, x2, y2;
+//     float confidence;
+//     int class_id;
+// };
 
 // Logger class for TensorRT
 class TensorInferencerLogger : public ILogger {
   void log(Severity severity, const char *msg) noexcept override {
-    // Log messages with severity kINFO, kWARNING, kERROR, kINTERNAL_ERROR
-    // kVERBOSE is too noisy for typical use.
     if (severity <= Severity::kWARNING) {
       std::cerr << "[TRT] " << msg << std::endl;
     }
@@ -63,17 +58,10 @@ static std::vector<char> readEngineFile(const std::string &enginePath) {
 }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width)
-    : // Initialize members from .hpp that have defaults or need nullptrs
-      runtime_(nullptr), engine_(nullptr), context_(nullptr),
+    : runtime_(nullptr), engine_(nullptr), context_(nullptr),
       inputDevice_(nullptr), outputDevice_(nullptr), inputIndex_(-1),
-      outputIndex_(-1), stop_flag_(false),
-// Assuming these are in the .hpp and will be properly initialized
-// num_classes_(0), target_w_(0), target_h_(0),
-// inputSizeElementsPerImage_(0), outputSizeElementsPerImage_(0)
-// batch_size_ is initialized via getenv
-// pending_callback_ initialized to nullptr implicitly or explicitly if needed
+      outputIndex_(-1), stop_flag_(false) // std::atomic_bool initialized
 {
-  // 1. Read BATCH_SIZE from environment variable
   const char *batch_size_env = std::getenv("YOLO_BATCH_SIZE");
   if (!batch_size_env) {
     std::cerr << "[WARN] Environment variable YOLO_BATCH_SIZE not set. "
@@ -100,16 +88,9 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
   std::cout << "[INFO] Using BATCH_SIZE: " << batch_size_ << std::endl;
 
-  // Initialize target_w_ and target_h_ (these might be overridden by engine
-  // dims later) Using roundToNearestMultiple as in the original single-batch
-  // version
-  target_w_ =
-      ((video_width + 31) / 32) * 32; // Round up to nearest multiple of 32
-  target_h_ =
-      ((video_height + 31) / 32) * 32; // Round up to nearest multiple of 32
+  target_w_ = ((video_width + 31) / 32) * 32;
+  target_h_ = ((video_height + 31) / 32) * 32;
 
-  // 2. Construct engine path using BATCH_SIZE
-  // First, try the specific YOLO_ENGINE_NAME_<BATCH_SIZE> key
   std::string specific_engine_env_key =
       "YOLO_ENGINE_NAME_" + std::to_string(batch_size_);
   const char *specific_engine_path_env =
@@ -120,17 +101,8 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::cout << "[INFO] Using engine path from " << specific_engine_env_key
               << ": " << engine_path_ << std::endl;
   } else {
-    // Fallback: try base YOLO_ENGINE_NAME and append _<BATCH_SIZE>.engine
     const char *base_engine_name_env = std::getenv("YOLO_ENGINE_NAME");
     if (base_engine_name_env) {
-      engine_path_ = std::string(base_engine_name_env);
-      // Append .engine if not present, then insert _<BATCH_SIZE> before .engine
-      // This logic is a bit complex; simpler if YOLO_ENGINE_NAME is just a base
-      // like "yolov8s" For now, let's assume YOLO_ENGINE_NAME is a full path
-      // *without* _<batch_size>.engine yet and we append _<batch_size>.engine
-      // A more robust way: if it ends with .engine, insert before it.
-      // Otherwise, append. Simplified: expect YOLO_ENGINE_NAME to be just the
-      // model name, e.g. "yolov8s_custom" then we append "_<batch_size>.engine"
       engine_path_ = std::string(base_engine_name_env) + "_" +
                      std::to_string(batch_size_) + ".engine";
       std::cout << "[INFO] Constructed engine path from YOLO_ENGINE_NAME: "
@@ -160,7 +132,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
   image_output_path_ = output_dir_env;
 
-  // Create output directory if it doesn't exist
   try {
     if (!image_output_path_.empty() &&
         !std::filesystem::exists(image_output_path_)) {
@@ -170,8 +141,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       } else {
         std::cerr << "[ERROR] Could not create output directory (failed): "
                   << image_output_path_ << std::endl;
-        // Not exiting, as it might be a permissions issue but path might still
-        // be writable by parent process
       }
     }
   } catch (const std::filesystem::filesystem_error &e) {
@@ -180,7 +149,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::exit(EXIT_FAILURE);
   }
 
-  // Load TensorRT Engine
   auto engineData = readEngineFile(engine_path_);
   if (engineData.empty()) {
     std::exit(EXIT_FAILURE);
@@ -194,13 +162,10 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   context_ = engine_->createExecutionContext();
   assert(context_ != nullptr && "TensorRT execution context creation failed.");
 
-  bindings_.resize(engine_->getNbBindings()); // Assuming bindings_ is a member:
-                                              // std::vector<void*>
+  bindings_.resize(engine_->getNbBindings());
 
-  // Get input and output tensor indices
-  inputIndex_ = engine_->getBindingIndex("images"); // Common input tensor name
-  outputIndex_ = engine_->getBindingIndex(
-      "output0"); // Common output tensor name for YOLO models
+  inputIndex_ = engine_->getBindingIndex("images");
+  outputIndex_ = engine_->getBindingIndex("output0");
 
   if (inputIndex_ < 0) {
     std::cerr << "[ERROR] Input tensor 'images' not found in engine."
@@ -228,7 +193,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     }
   }
 
-  // Load class names
   std::ifstream infile(names_path_str);
   if (!infile.is_open()) {
     std::cerr << "[ERROR] Cannot open class names file: " << names_path_str
@@ -253,11 +217,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::exit(EXIT_FAILURE);
   }
 
-  // Determine model input dimensions (H, W) from engine if possible, otherwise
-  // use defaults
-  Dims reportedInputDims =
-      engine_->getBindingDimensions(inputIndex_); // These are opt profile dims
-  // reportedInputDims.d[0] is batch, d[1] is C, d[2] is H, d[3] is W
+  Dims reportedInputDims = engine_->getBindingDimensions(inputIndex_);
   if (reportedInputDims.nbDims == 4 && reportedInputDims.d[2] > 0 &&
       reportedInputDims.d[3] > 0) {
     target_h_ = reportedInputDims.d[2];
@@ -270,7 +230,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
               << target_h_ << ", W=" << target_w_ << std::endl;
   }
 
-  // Validate tensor data types
   if (engine_->getBindingDataType(inputIndex_) != nvinfer1::DataType::kFLOAT) {
     std::cerr << "[ERROR] Engine input tensor '"
               << engine_->getBindingName(inputIndex_)
@@ -284,10 +243,8 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::exit(EXIT_FAILURE);
   }
 
-  printEngineInfo(); // Print detailed engine info after setup
+  printEngineInfo();
 
-  // Set runtime dimensions for the context to determine buffer sizes
-  // This needs to be done for the *actual batch_size_* we will use.
   Dims inputDimsFullBatch{4, {batch_size_, 3, target_h_, target_w_}};
   if (!context_->setBindingDimensions(inputIndex_, inputDimsFullBatch)) {
     std::cerr << "[ERROR] Constructor: Failed to set binding dimensions for "
@@ -295,7 +252,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
               << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  if (!context_->allInputDimensionsSpecified()) { // Important check
+  if (!context_->allInputDimensionsSpecified()) {
     std::cerr << "[ERROR] Constructor: Not all input dimensions specified "
                  "after setting for full batch."
               << std::endl;
@@ -303,11 +260,8 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
 
   Dims outputDimsFullBatch = context_->getBindingDimensions(outputIndex_);
-  // Expected output for YOLO: [batch_size, num_attributes (4_bbox +
-  // num_classes), num_detections_yolo] Example: [16, 84, 8400] for COCO (80
-  // classes)
   if (outputDimsFullBatch.nbDims != 3 ||
-      outputDimsFullBatch.d[0] != batch_size_ || // Batch dimension should match
+      outputDimsFullBatch.d[0] != batch_size_ ||
       outputDimsFullBatch.d[1] != (4 + num_classes_)) {
     std::cerr << "[ERROR] Output tensor dimensions from engine are unexpected "
                  "for YOLO model structure."
@@ -325,12 +279,9 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       std::cerr << outputDimsFullBatch.d[i]
                 << (i == outputDimsFullBatch.nbDims - 1 ? "" : "x");
     std::cerr << std::endl;
-    // If engine has fixed batch size different from configured, this is an
-    // issue. Or if num_classes doesn't match model output.
     std::exit(EXIT_FAILURE);
   }
 
-  // Calculate per-image and total batch sizes for GPU buffers
   inputSizeElementsPerImage_ = static_cast<size_t>(3) * target_h_ * target_w_;
   size_t totalInputElementsForBatch =
       static_cast<size_t>(batch_size_) * inputSizeElementsPerImage_;
@@ -340,13 +291,9 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   size_t totalOutputElementsForBatch =
       static_cast<size_t>(batch_size_) * outputSizeElementsPerImage_;
 
-  // Store these total sizes in member variables from .hpp if they are meant for
-  // batch totals Assuming inputSize_ and outputSize_ from .hpp are for total
-  // batch byte sizes
   inputSize_ = totalInputElementsForBatch * sizeof(float);
   outputSize_ = totalOutputElementsForBatch * sizeof(float);
 
-  // Allocate GPU Memory for the full batch
   cudaError_t err;
   err = cudaMalloc(&inputDevice_, inputSize_);
   if (err != cudaSuccess) {
@@ -357,7 +304,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
   err = cudaMalloc(&outputDevice_, outputSize_);
   if (err != cudaSuccess) {
-    cudaFree(inputDevice_); // Free already allocated memory
+    cudaFree(inputDevice_);
     std::cerr << "[ERROR] CUDA Malloc Output (Batch): "
               << cudaGetErrorString(err) << " (Size: " << outputSize_
               << " bytes)" << std::endl;
@@ -378,24 +325,20 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
             << ", Total for batch: " << totalOutputElementsForBatch
             << " (Bytes: " << outputSize_ << ")" << std::endl;
 
-  // Start the inference worker thread
   inference_thread_ = std::thread(&TensorInferencer::run, this);
   std::cout << "[INFO] TensorInferencer initialized and worker thread started."
             << std::endl;
 }
 
 TensorInferencer::~TensorInferencer() {
-  std::cout << "[DEINIT] Stopping TensorInferencer worker thread..."
+  std::cout << "[DEINIT] Destructor called. Finalizing processing..."
             << std::endl;
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    stop_flag_ = true;
-  }
-  cv_.notify_all(); // Notify worker thread to wake up and check stop_flag_
-  if (inference_thread_.joinable()) {
-    inference_thread_.join();
-  }
-  std::cout << "[DEINIT] Worker thread joined." << std::endl;
+  finalizeProcessing(
+      true); // Ensure all tasks are flushed and thread is joined.
+  // Resources are freed after thread joins.
+  // Note: finalizeProcessing already joins the thread, so the join here will be
+  // a no-op if called prior. If finalizeProcessing was not called, this ensures
+  // cleanup.
 
   if (inputDevice_) {
     cudaFree(inputDevice_);
@@ -420,6 +363,72 @@ TensorInferencer::~TensorInferencer() {
   std::cout << "[DEINIT] TensorInferencer resources released." << std::endl;
 }
 
+void TensorInferencer::finalizeProcessing(bool wait_for_completion) {
+  std::cout << "[FINALIZE] Initiating finalizeProcessing. stop_flag current: "
+            << stop_flag_.load() << std::endl;
+  bool already_stopped =
+      stop_flag_.exchange(true); // Set to true and get previous value
+
+  if (already_stopped) {
+    std::cout << "[FINALIZE] Already stopping/stopped." << std::endl;
+    // If already stopping, and we need to wait, ensure thread is joined.
+    // The destructor will also call this, so it needs to be idempotent.
+    if (wait_for_completion && inference_thread_.joinable()) {
+      // It's possible the thread is joinable but already joined by another
+      // finalize/destructor call. A robust way is to track if joined, or rely
+      // on destructor's final join. For simplicity, if called multiple times,
+      // subsequent joins on an already joined thread are benign. However,
+      // multiple threads calling join on the same std::thread is UB. This
+      // method should ideally be called once, or be idempotent regarding
+      // joining. The destructor will handle the final join. If we want this
+      // method to *guarantee* join before returning, we do it here.
+    }
+    // If already stopped, we still notify to ensure any cv_.wait() condition is
+    // re-evaluated if it was missed.
+    cv_.notify_all();
+    if (wait_for_completion && inference_thread_.joinable()) {
+      std::cout << "[FINALIZE] Waiting for inference thread to complete "
+                   "(already stopping)..."
+                << std::endl;
+      inference_thread_
+          .join(); // This might be problematic if another thread (e.g.
+                   // destructor) also tries to join. Better to have a single
+                   // point of joining or a flag. For now, assuming destructor
+                   // handles the ultimate join if this one doesn't. Let's make
+                   // this method the primary joiner if wait_for_completion is
+                   // true.
+    }
+    return; // Already initiated stop
+  }
+
+  std::cout << "[FINALIZE] Setting stop_flag to true and notifying worker."
+            << std::endl;
+  // stop_flag_ is already set by exchange above.
+  // Lock is not strictly needed for stop_flag_ (atomic) but good for cv.
+  // {
+  //     std::unique_lock<std::mutex> lock(mutex_); // Not needed for atomic
+  //     stop_flag write
+  //     // stop_flag_ = true; // Done by exchange
+  // }
+  cv_.notify_all();
+
+  if (wait_for_completion) {
+    if (inference_thread_.joinable()) {
+      std::cout << "[FINALIZE] Waiting for inference thread to complete..."
+                << std::endl;
+      inference_thread_.join();
+      std::cout << "[FINALIZE] Inference thread joined." << std::endl;
+    } else {
+      std::cout << "[FINALIZE] Inference thread was not joinable (already "
+                   "joined or not started properly)."
+                << std::endl;
+    }
+  } else {
+    std::cout << "[FINALIZE] Signal sent, not waiting for completion."
+              << std::endl;
+  }
+}
+
 void TensorInferencer::printEngineInfo() {
   std::cout << "\n=== TensorRT Engine Information ===" << std::endl;
   std::cout << "  Engine Path: " << engine_path_ << std::endl;
@@ -431,7 +440,7 @@ void TensorInferencer::printEngineInfo() {
 
   for (int i = 0; i < engine_->getNbBindings(); ++i) {
     const char *name = engine_->getBindingName(i);
-    Dims dims = engine_->getBindingDimensions(i); // Opt profile dims
+    Dims dims = engine_->getBindingDimensions(i);
     nvinfer1::DataType dtype = engine_->getBindingDataType(i);
     bool isInput = engine_->bindingIsInput(i);
 
@@ -461,8 +470,6 @@ void TensorInferencer::printEngineInfo() {
     }
     std::cout << "]" << std::endl;
   }
-  // Also print runtime dimensions for current context if needed (after
-  // setBindingDimensions)
   if (context_ && inputIndex_ >= 0 && outputIndex_ >= 0) {
     Dims runtimeInputDims = context_->getBindingDimensions(inputIndex_);
     Dims runtimeOutputDims = context_->getBindingDimensions(outputIndex_);
@@ -480,22 +487,49 @@ void TensorInferencer::printEngineInfo() {
   std::cout << "===================================\n" << std::endl;
 }
 
-// This overload is from the original single-batch code.
-// WARNING: Its usage of class members inputSize_ and outputSize_ (now batch
-// total bytes) and device pointers (inputDevice_, outputDevice_ for batch)
-// makes it unsafe to use concurrently with the batching `infer` method. It's
-// kept as per prompt (no changes to this specific function requested for
-// removal). If used, it would need its own buffer management or careful
-// synchronization.
+bool TensorInferencer::infer(const InferenceInput &input,
+                             InferenceCallback callback) {
+  if (stop_flag_.load()) { // Use .load() for std::atomic_bool
+    std::cerr << "[WARN] Inferencer is stopping/stopped. Request for gopIdx "
+              << input.gopIdx << " rejected." << std::endl;
+    if (callback) {
+      std::vector<InferenceResult> results;
+      results.push_back({"Inferencer stopping, request rejected."});
+      try {
+        callback(results);
+      } catch (const std::exception &e) {
+        std::cerr
+            << "[ERROR] Exception in user-provided callback (rejected input): "
+            << e.what() << std::endl;
+      } catch (...) {
+        std::cerr << "[ERROR] Unknown exception in user-provided callback "
+                     "(rejected input)."
+                  << std::endl;
+      }
+    }
+    return false; // Indicate rejection
+  }
+  std::unique_lock<std::mutex> lock(mutex_);
+  pending_inputs_.push_back(input);
+  pending_callback_ = callback;
+  lock.unlock();
+  cv_.notify_one();
+  return true; // Indicate success
+}
+
 bool TensorInferencer::infer(const std::vector<float> &input_vector_cpu,
                              std::vector<float> &output_vector_cpu) {
-  std::cerr << "[WARN] The infer(std::vector<float>...) overload is likely "
-               "unsafe with batching due to shared GPU buffers and size "
-               "assumptions. Use with extreme caution or refactor."
+  if (stop_flag_.load()) {
+    std::cerr << "[WARN] infer(vector<float>): Inferencer is stopping/stopped. "
+                 "Request rejected."
+              << std::endl;
+    return false;
+  }
+  std::cerr << "[WARN] The infer(std::vector<float>...) overload is "
+               "potentially unsafe with batching due to shared GPU buffers and "
+               "size assumptions. Use with extreme caution or refactor."
             << std::endl;
 
-  // This function assumes input_vector_cpu is for a single image and its size
-  // matches inputSizeElementsPerImage_
   if (inputSizeElementsPerImage_ == 0 || outputSizeElementsPerImage_ == 0) {
     std::cerr
         << "[ERROR] infer(vector<float>): Per-image sizes not initialized."
@@ -509,135 +543,110 @@ bool TensorInferencer::infer(const std::vector<float> &input_vector_cpu,
         << input_vector_cpu.size() << std::endl;
     return false;
   }
-  output_vector_cpu.resize(
-      outputSizeElementsPerImage_); // Resize for single image output
+  output_vector_cpu.resize(outputSizeElementsPerImage_);
 
-  // This would use the main batch buffers, which is incorrect for a single
-  // float vector. For this to work, it would need to:
-  // 1. Allocate temporary small GPU buffers.
-  // 2. Set context binding dimensions for batch_size=1.
-  // 3. Perform inference.
-  // 4. Restore context binding dimensions if they were changed.
-  // As is, it will likely corrupt batch processing or use incorrect dimensions.
-
-  // Simplified (and potentially problematic) use of existing batch buffers:
   cudaError_t err;
-  // Copy only single image data to the start of the batch input buffer
+  // This section needs a mutex if context dimensions are changed and restored,
+  // to prevent race conditions with the main batching thread.
+  // For simplicity, and given it's a "problematic" function, skipping full
+  // thread-safety for this overload here. A proper solution would involve a
+  // separate context or careful synchronization.
+  std::unique_lock<std::mutex> lock(mutex_); // Lock to protect context changes
+
+  Dims singleImageInputDims{4, {1, 3, target_h_, target_w_}};
+  Dims originalInputDims = context_->getBindingDimensions(
+      inputIndex_); // Get current (likely batch) dims
+
+  bool dims_changed = false;
+  if (originalInputDims.d[0] != 1 || originalInputDims.d[2] != target_h_ ||
+      originalInputDims.d[3] != target_w_) {
+    if (!context_->setBindingDimensions(inputIndex_, singleImageInputDims)) {
+      std::cerr << "[ERROR] infer(vector<float>): Failed to set binding "
+                   "dimensions for single image."
+                << std::endl;
+      return false; // lock will be released by destructor
+    }
+    dims_changed = true;
+  }
+  lock.unlock(); // Unlock before potentially long CUDA calls
+
   err = cudaMemcpy(bindings_[inputIndex_], input_vector_cpu.data(),
                    inputSizeElementsPerImage_ * sizeof(float),
                    cudaMemcpyHostToDevice);
   if (err != cudaSuccess) {
     std::cerr << "[ERROR] infer(vector<float>): CUDA Memcpy H2D: "
               << cudaGetErrorString(err) << std::endl;
+    if (dims_changed) { // Restore original dimensions if changed
+      std::unique_lock<std::mutex> restore_lock(mutex_);
+      context_->setBindingDimensions(inputIndex_, originalInputDims);
+    }
     return false;
   }
 
-  // Critical: The context might be set for a larger batch size. This enqueue
-  // will be problematic. For a single image, context dimensions should be set
-  // to [1, C, H, W] Temporarily setting for BATCH_SIZE=1 for this call:
-  Dims singleImageInputDims{4, {1, 3, target_h_, target_w_}};
-  if (!context_->setBindingDimensions(inputIndex_, singleImageInputDims)) {
-    std::cerr << "[ERROR] infer(vector<float>): Failed to set binding "
-                 "dimensions for single image."
-              << std::endl;
-    return false;
-  }
-
-  if (!context_->enqueueV2(bindings_.data(), 0,
-                           nullptr)) { // Use default stream
+  if (!context_->enqueueV2(bindings_.data(), 0, nullptr)) {
     std::cerr << "[ERROR] infer(vector<float>): enqueueV2 failed." << std::endl;
-    // Restore batch dimensions? This is getting complicated.
-    Dims fullBatchInputDims{4, {batch_size_, 3, target_h_, target_w_}};
-    context_->setBindingDimensions(inputIndex_,
-                                   fullBatchInputDims); // Attempt to restore
+    if (dims_changed) {
+      std::unique_lock<std::mutex> restore_lock(mutex_);
+      context_->setBindingDimensions(inputIndex_, originalInputDims);
+    }
     return false;
   }
 
-  // Copy only single image output from the start of the batch output buffer
   err = cudaMemcpy(output_vector_cpu.data(), bindings_[outputIndex_],
                    outputSizeElementsPerImage_ * sizeof(float),
                    cudaMemcpyDeviceToHost);
   if (err != cudaSuccess) {
     std::cerr << "[ERROR] infer(vector<float>): CUDA Memcpy D2H: "
               << cudaGetErrorString(err) << std::endl;
-    // Restore batch dimensions before returning
-    Dims fullBatchInputDims{4, {batch_size_, 3, target_h_, target_w_}};
-    context_->setBindingDimensions(inputIndex_,
-                                   fullBatchInputDims); // Attempt to restore
+    if (dims_changed) {
+      std::unique_lock<std::mutex> restore_lock(mutex_);
+      context_->setBindingDimensions(inputIndex_, originalInputDims);
+    }
     return false;
   }
 
-  // Restore context binding dimensions to the full batch size for the main
-  // worker thread
-  Dims fullBatchInputDims{4, {batch_size_, 3, target_h_, target_w_}};
-  if (!context_->setBindingDimensions(inputIndex_, fullBatchInputDims)) {
-    std::cerr << "[WARN] infer(vector<float>): Failed to restore full batch "
-                 "binding dimensions."
-              << std::endl;
+  if (dims_changed) {
+    std::unique_lock<std::mutex> restore_lock(mutex_);
+    if (!context_->setBindingDimensions(inputIndex_, originalInputDims)) {
+      std::cerr << "[WARN] infer(vector<float>): Failed to restore original "
+                   "batch binding dimensions."
+                << std::endl;
+    }
   }
-
   return true;
 }
 
-// Main public API for submitting inference requests
-void TensorInferencer::infer(const InferenceInput &input,
-                             InferenceCallback callback) {
-  if (stop_flag_) {
-    std::cerr << "[WARN] Inferencer is stopping. Request for gopIdx "
-              << input.gopIdx << " ignored." << std::endl;
-    // Optionally, invoke callback with an error immediately
-    if (callback) {
-      std::vector<InferenceResult> results;
-      results.push_back({"Inferencer stopping, request ignored."});
-      callback(results);
-    }
-    return;
-  }
-  std::unique_lock<std::mutex> lock(mutex_);
-  pending_inputs_.push_back(input);
-  // Store the callback. If multiple calls to infer() happen before a batch is
-  // full, the last callback will overwrite previous ones for that forming
-  // batch. This design implies one callback per batch, not per input item. If
-  // per-input-item callback is needed, the design needs to change (e.g., store
-  // pairs of <Input, Callback>). For now, assume one callback for the whole
-  // batch.
-  pending_callback_ = callback;
-  lock.unlock();
-  cv_.notify_one(); // Notify the worker thread that new data is available
-}
-
-// Worker thread main loop
 void TensorInferencer::run() {
   std::vector<InferenceInput> current_processing_batch;
   InferenceCallback callback_for_this_batch = nullptr;
 
+  std::cout << "[WORKER] Inference worker thread started." << std::endl;
   while (true) {
-    current_processing_batch.clear();  // Clear for next batch
-    callback_for_this_batch = nullptr; // Reset callback
+    current_processing_batch.clear();
+    callback_for_this_batch = nullptr;
 
-    { // Lock scope for accessing shared data (pending_inputs_, stop_flag_,
-      // pending_callback_)
+    {
       std::unique_lock<std::mutex> lock(mutex_);
       cv_.wait(lock, [this] {
-        // Wait if not stopping AND (pending inputs is less than batch size)
-        return stop_flag_ ||
+        return stop_flag_.load() ||
                pending_inputs_.size() >= static_cast<size_t>(batch_size_);
       });
 
-      if (stop_flag_ && pending_inputs_.empty()) {
-        break; // Exit loop if stopping and no more items to process
+      if (stop_flag_.load() && pending_inputs_.empty()) {
+        std::cout
+            << "[WORKER] Stop flag set and no pending inputs. Exiting run loop."
+            << std::endl;
+        break;
       }
 
       size_t num_to_grab = 0;
       if (pending_inputs_.size() >= static_cast<size_t>(batch_size_)) {
         num_to_grab = batch_size_;
-      } else if (stop_flag_ && !pending_inputs_.empty()) {
-        // If stopping, process any remaining items, even if less than a full
-        // batch
+      } else if (stop_flag_.load() && !pending_inputs_.empty()) {
         num_to_grab = pending_inputs_.size();
+        std::cout << "[WORKER] Stop flag set. Processing remaining "
+                  << num_to_grab << " inputs." << std::endl;
       } else {
-        // Spurious wakeup or not enough items and not stopping, continue
-        // waiting
         continue;
       }
 
@@ -646,21 +655,16 @@ void TensorInferencer::run() {
         for (size_t i = 0; i < num_to_grab; ++i) {
           current_processing_batch.push_back(
               std::move(pending_inputs_.front()));
-          pending_inputs_.erase(
-              pending_inputs_.begin()); // Efficient for std::vector if it's
-                                        // small or use std::deque
+          pending_inputs_.erase(pending_inputs_.begin());
         }
-        callback_for_this_batch =
-            pending_callback_; // Get the callback associated with this batch
-        // Reset pending_callback_ if it's meant to be cleared after being
-        // grabbed for a batch. pending_callback_ = nullptr; // Or handle this
-        // based on desired callback semantics.
+        callback_for_this_batch = pending_callback_;
       }
-    } // Mutex is released here
+    }
 
     if (!current_processing_batch.empty()) {
-      std::vector<InferenceResult>
-          batch_results; // Results for this specific batch
+      std::cout << "[WORKER] Processing a batch of "
+                << current_processing_batch.size() << " items." << std::endl;
+      std::vector<InferenceResult> batch_results;
       performInference(current_processing_batch, batch_results);
 
       if (callback_for_this_batch) {
@@ -673,37 +677,29 @@ void TensorInferencer::run() {
           std::cerr << "[ERROR] Unknown exception in user-provided callback."
                     << std::endl;
         }
-      } else if (!batch_results
-                      .empty()) { // Processed something but no callback
-        std::cout << "[WARN] Worker thread: Batch processed but no callback "
-                     "was set for it."
-                  << std::endl;
+      } else if (!batch_results.empty()) {
+        std::cout
+            << "[WORKER WARN] Batch processed but no callback was set for it."
+            << std::endl;
       }
     }
   }
-  std::cout << "[INFO] Inference worker thread run() loop finished."
+  std::cout << "[WORKER] Inference worker thread run() loop finished."
             << std::endl;
 }
 
-// Performs inference on a prepared batch of inputs
 void TensorInferencer::performInference(
-    const std::vector<InferenceInput>
-        &batch_inputs_from_queue, // Actual inputs for this batch
-    std::vector<InferenceResult>
-        &batch_results_out // Output results to be populated
-) {
+    const std::vector<InferenceInput> &batch_inputs_from_queue,
+    std::vector<InferenceResult> &batch_results_out) {
   if (batch_inputs_from_queue.empty()) {
-    return; // Nothing to process
+    return;
   }
 
   int num_actual_images_in_this_batch = batch_inputs_from_queue.size();
-  std::vector<float> batched_input_data_cpu; // CPU buffer for the entire batch
-  // Reserve space for a full batch_size_ even if
-  // num_actual_images_in_this_batch is smaller (due to padding)
+  std::vector<float> batched_input_data_cpu;
   batched_input_data_cpu.reserve(static_cast<size_t>(batch_size_) *
                                  inputSizeElementsPerImage_);
 
-  // --- Preprocess images and pad if necessary ---
   for (int i = 0; i < batch_size_; ++i) {
     cv::Mat img_to_preprocess;
     bool is_real_image = (i < num_actual_images_in_this_batch);
@@ -716,38 +712,32 @@ void TensorInferencer::performInference(
             << "[WARN] PerformInference: Empty frame provided for batch item "
             << i << " (gopIdx " << current_item.gopIdx
             << "). Using dummy image." << std::endl;
-        // Create a dummy image (e.g., gray or black) of target_h_ x target_w_
         img_to_preprocess =
             cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
       } else {
         img_to_preprocess = current_item.decoded_frames[0];
       }
-    } else { // This is a padding slot
+    } else {
       img_to_preprocess =
-          cv::Mat(target_h_, target_w_, CV_8UC3,
-                  cv::Scalar(114, 114, 114)); // Dummy padding image
+          cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
     }
 
-    // Preprocessing steps for one image:
     cv::Mat resized_img;
     if (img_to_preprocess.cols != target_w_ ||
         img_to_preprocess.rows != target_h_) {
       cv::resize(img_to_preprocess, resized_img,
                  cv::Size(target_w_, target_h_));
     } else {
-      resized_img = img_to_preprocess; // Already correct size
+      resized_img = img_to_preprocess;
     }
 
     cv::Mat img_rgb;
     cv::cvtColor(resized_img, img_rgb, cv::COLOR_BGR2RGB);
 
-    cv::Mat chw_input_fp32_single; // For one image
-    img_rgb.convertTo(chw_input_fp32_single, CV_32FC3,
-                      1.0 / 255.0); // Normalize to [0,1]
+    cv::Mat chw_input_fp32_single;
+    img_rgb.convertTo(chw_input_fp32_single, CV_32FC3, 1.0 / 255.0);
 
-    // Convert to CHW (planar) format and append to batched_input_data_cpu
-    // RRR...GGG...BBB...
-    for (int ch = 0; ch < 3; ++ch) { // Iterate R, G, B channels
+    for (int ch = 0; ch < 3; ++ch) {
       for (int y = 0; y < target_h_; ++y) {
         for (int x = 0; x < target_w_; ++x) {
           batched_input_data_cpu.push_back(
@@ -755,11 +745,8 @@ void TensorInferencer::performInference(
         }
       }
     }
-  } // End of preprocessing loop for batch
+  }
 
-  // --- Set runtime dimensions for the batch (always use batch_size_ for the
-  // engine context) --- This was already done in constructor and after single
-  // infer(vector<float>), but good to ensure.
   Dims currentInputDims = context_->getBindingDimensions(inputIndex_);
   if (currentInputDims.d[0] != batch_size_ ||
       currentInputDims.d[2] != target_h_ ||
@@ -784,10 +771,7 @@ void TensorInferencer::performInference(
     }
   }
 
-  // --- Perform Inference ---
   cudaError_t err;
-  // Total input bytes for the full batch_size_ (CPU buffer should also match
-  // this size)
   size_t total_input_bytes_for_batch = static_cast<size_t>(batch_size_) *
                                        inputSizeElementsPerImage_ *
                                        sizeof(float);
@@ -813,8 +797,7 @@ void TensorInferencer::performInference(
     return;
   }
 
-  if (!context_->enqueueV2(bindings_.data(), 0,
-                           nullptr)) { // Using default CUDA stream 0
+  if (!context_->enqueueV2(bindings_.data(), 0, nullptr)) {
     std::cerr << "[ERROR] PerformInference: TensorRT enqueueV2 failed."
               << std::endl;
     for (int i = 0; i < num_actual_images_in_this_batch; ++i)
@@ -823,13 +806,11 @@ void TensorInferencer::performInference(
     return;
   }
 
-  // Total output bytes for the full batch_size_
   size_t total_output_bytes_for_batch = static_cast<size_t>(batch_size_) *
                                         outputSizeElementsPerImage_ *
                                         sizeof(float);
   std::vector<float> host_output_raw_full_batch(
-      static_cast<size_t>(batch_size_) *
-      outputSizeElementsPerImage_); // CPU buffer for all outputs
+      static_cast<size_t>(batch_size_) * outputSizeElementsPerImage_);
 
   err = cudaMemcpy(host_output_raw_full_batch.data(), outputDevice_,
                    total_output_bytes_for_batch, cudaMemcpyDeviceToHost);
@@ -841,9 +822,7 @@ void TensorInferencer::performInference(
     return;
   }
 
-  // --- Postprocess results for each *actual* image in the batch ---
-  Dims batchOutDimsFromContext = context_->getBindingDimensions(
-      outputIndex_); // Should be [batch_size_, attrs, dets_per_img]
+  Dims batchOutDimsFromContext = context_->getBindingDimensions(outputIndex_);
 
   for (int i = 0; i < num_actual_images_in_this_batch; ++i) {
     const InferenceInput &current_original_input_params =
@@ -852,45 +831,28 @@ void TensorInferencer::performInference(
         (current_original_input_params.decoded_frames.empty() ||
          current_original_input_params.decoded_frames[0].empty())
             ? cv::Mat()
-            : // Pass empty Mat if original was bad/dummy
-            current_original_input_params.decoded_frames[0];
+            : current_original_input_params.decoded_frames[0];
 
-    // Get the slice of output data for this specific image from the full batch
-    // output
     const float *single_image_output_ptr_start =
         host_output_raw_full_batch.data() + (i * outputSizeElementsPerImage_);
     std::vector<float> single_image_output_data_slice(
         single_image_output_ptr_start,
         single_image_output_ptr_start + outputSizeElementsPerImage_);
 
-    InferenceResult current_image_result_obj; // To be populated by
-                                              // processDetectionsForOneImage
+    InferenceResult current_image_result_obj;
     processDetectionsForOneImage(
         current_original_input_params, single_image_output_data_slice,
-        current_raw_img_for_item,
-        batchOutDimsFromContext, // Pass the batch output dims for structure
-                                 // reference
-        i, // image_idx_in_batch for logging or unique naming
-        current_image_result_obj // Pass by reference to be filled
-    );
+        current_raw_img_for_item, batchOutDimsFromContext, i,
+        current_image_result_obj);
     batch_results_out.push_back(current_image_result_obj);
   }
 }
 
-// Processes detections for a single image from the batch output
 void TensorInferencer::processDetectionsForOneImage(
-    const InferenceInput
-        &original_input_params, // Original parameters for this image
-    const std::vector<float>
-        &single_image_raw_output, // Raw output tensor slice for ONE image
-    const cv::Mat &raw_img_for_this_item, // The original raw image (can be
-                                          // empty if input was bad)
-    const nvinfer1::Dims &batchOutDims,   // Full batch output Dims from context
-                                        // (e.g., [batch, attrs, dets_per_img])
-    int image_idx_in_batch, // Index of this image within the processed batch
-                            // (for logging)
-    InferenceResult &result_for_this_image_out // Result object to populate
-) {
+    const InferenceInput &original_input_params,
+    const std::vector<float> &single_image_raw_output,
+    const cv::Mat &raw_img_for_this_item, const nvinfer1::Dims &batchOutDims,
+    int image_idx_in_batch, InferenceResult &result_for_this_image_out) {
   if (raw_img_for_this_item.empty()) {
     std::cout << "[INFO] processDetections: Skipping processing for gopIdx "
               << original_input_params.gopIdx << " (batch slot "
@@ -900,9 +862,6 @@ void TensorInferencer::processDetectionsForOneImage(
     return;
   }
 
-  // batchOutDims.d[0] is batch_size
-  // batchOutDims.d[1] is num_attributes (e.g., 4 bbox + num_classes)
-  // batchOutDims.d[2] is num_detections_per_image (e.g., 8400 for YOLOv8)
   int num_attributes_per_detection = batchOutDims.d[1];
   int num_potential_detections_per_image = batchOutDims.d[2];
 
@@ -921,9 +880,6 @@ void TensorInferencer::processDetectionsForOneImage(
     return;
   }
 
-  // Transpose output for this single image: from [num_attributes,
-  // num_detections] to [num_detections, num_attributes] This makes iterating
-  // through detections easier.
   std::vector<float> transposed_output_single_image(
       single_image_raw_output.size());
   for (int det_idx = 0; det_idx < num_potential_detections_per_image;
@@ -950,23 +906,17 @@ void TensorInferencer::processDetectionsForOneImage(
     return;
   }
   int target_class_id = it_target_class->second;
-  float confidence_threshold = std::max(
-      0.01f,
-      original_input_params.confidence_thresh); // Ensure some minimum threshold
+  float confidence_threshold =
+      std::max(0.01f, original_input_params.confidence_thresh);
 
-  std::vector<Detection>
-      candidate_detections; // Store detections meeting class and confidence
-                            // criteria before NMS
+  std::vector<Detection> candidate_detections;
   for (int i = 0; i < num_potential_detections_per_image; ++i) {
     const float *det_attrs_ptr =
         &transposed_output_single_image[static_cast<size_t>(i) *
                                         num_attributes_per_detection];
-    // det_attrs_ptr points to [cx, cy, w, h, class_score_0, class_score_1, ...,
-    // class_score_N-1]
 
     float max_class_score = 0.0f;
     int best_class_id_for_this_box = -1;
-    // Class scores start at index 4 (after cx, cy, w, h)
     for (int j = 0; j < num_classes_; ++j) {
       float score = det_attrs_ptr[4 + j];
       if (score > max_class_score) {
@@ -977,13 +927,11 @@ void TensorInferencer::processDetectionsForOneImage(
 
     if (best_class_id_for_this_box == target_class_id &&
         max_class_score >= confidence_threshold) {
-      float cx_model = det_attrs_ptr[0]; // Center X (relative to target_w_)
-      float cy_model = det_attrs_ptr[1]; // Center Y (relative to target_h_)
-      float w_model = det_attrs_ptr[2];  // Width (relative to target_w_)
-      float h_model = det_attrs_ptr[3];  // Height (relative to target_h_)
+      float cx_model = det_attrs_ptr[0];
+      float cy_model = det_attrs_ptr[1];
+      float w_model = det_attrs_ptr[2];
+      float h_model = det_attrs_ptr[3];
 
-      // Convert to x1, y1, x2, y2 (still relative to target_w_, target_h_ model
-      // input)
       float x1_model = std::max(0.0f, cx_model - w_model / 2.0f);
       float y1_model = std::max(0.0f, cy_model - h_model / 2.0f);
       float x2_model =
@@ -991,8 +939,7 @@ void TensorInferencer::processDetectionsForOneImage(
       float y2_model =
           std::min(static_cast<float>(target_h_), cy_model + h_model / 2.0f);
 
-      if (x2_model > x1_model &&
-          y2_model > y1_model) { // Ensure valid box dimensions
+      if (x2_model > x1_model && y2_model > y1_model) {
         candidate_detections.push_back({x1_model, y1_model, x2_model, y2_model,
                                         max_class_score,
                                         best_class_id_for_this_box});
@@ -1001,7 +948,7 @@ void TensorInferencer::processDetectionsForOneImage(
   }
 
   std::vector<Detection> nms_filtered_detections =
-      applyNMS(candidate_detections, 0.45f); // Standard IoU threshold for NMS
+      applyNMS(candidate_detections, 0.45f);
 
   std::ostringstream detection_summary_stream;
   if (nms_filtered_detections.empty()) {
@@ -1021,15 +968,10 @@ void TensorInferencer::processDetectionsForOneImage(
   for (size_t i = 0; i < nms_filtered_detections.size(); ++i) {
     const auto &det = nms_filtered_detections[i];
 
-    // Save annotated image. This function also handles scaling to
-    // raw_img_for_this_item dimensions.
-    saveAnnotatedImage(
-        raw_img_for_this_item, det.x1, det.y1, det.x2, det.y2, det.confidence,
-        original_input_params.object_name, original_input_params.gopIdx,
-        static_cast<int>(i)); // detection_idx_in_image for unique naming
+    saveAnnotatedImage(raw_img_for_this_item, det.x1, det.y1, det.x2, det.y2,
+                       det.confidence, original_input_params.object_name,
+                       original_input_params.gopIdx, static_cast<int>(i));
 
-    // --- Print detection info to console (scaled to original image dimensions)
-    // ---
     float scale_x_to_raw = static_cast<float>(raw_img_for_this_item.cols) /
                            static_cast<float>(target_w_);
     float scale_y_to_raw = static_cast<float>(raw_img_for_this_item.rows) /
@@ -1040,7 +982,6 @@ void TensorInferencer::processDetectionsForOneImage(
     int final_x2_raw = static_cast<int>(std::round(det.x2 * scale_x_to_raw));
     int final_y2_raw = static_cast<int>(std::round(det.y2 * scale_y_to_raw));
 
-    // Clamp to raw image boundaries
     final_x1_raw =
         std::max(0, std::min(final_x1_raw, raw_img_for_this_item.cols - 1));
     final_y1_raw =
@@ -1062,8 +1003,7 @@ void TensorInferencer::processDetectionsForOneImage(
                 << "], Score: " << std::fixed << std::setprecision(4)
                 << det.confidence << std::endl;
       if (i > 0)
-        detection_summary_stream
-            << "; "; // Separator for multiple detections in summary
+        detection_summary_stream << "; ";
       detection_summary_stream << "Det" << i << "_RawBox: [" << final_x1_raw
                                << "," << final_y1_raw << "," << final_w_raw
                                << "," << final_h_raw << "]@" << std::fixed
@@ -1073,9 +1013,7 @@ void TensorInferencer::processDetectionsForOneImage(
   result_for_this_image_out.info = detection_summary_stream.str();
 }
 
-// NMS implementation (IoU calculation and filtering)
 float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
-  // Coords are x1, y1, x2, y2
   float x1_intersect = std::max(a.x1, b.x1);
   float y1_intersect = std::max(a.y1, b.y1);
   float x2_intersect = std::min(a.x2, b.x2);
@@ -1085,14 +1023,15 @@ float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
   float intersection_height = std::max(0.0f, y2_intersect - y1_intersect);
   float intersection_area = intersection_width * intersection_height;
 
-  if (intersection_area <= 0.0f) // Or check width/height <= 0
+  if (intersection_area <=
+      1e-5) // Use a small epsilon for floating point comparison
     return 0.0f;
 
   float area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
   float area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
   float union_area = area_a + area_b - intersection_area;
 
-  return (union_area > 0.0f) ? (intersection_area / union_area) : 0.0f;
+  return (union_area > 1e-5) ? (intersection_area / union_area) : 0.0f;
 }
 
 std::vector<Detection>
@@ -1102,7 +1041,6 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
     return {};
   }
   std::vector<Detection> sorted_detections = detections;
-  // Sort detections by confidence in descending order
   std::sort(sorted_detections.begin(), sorted_detections.end(),
             [](const Detection &a, const Detection &b) {
               return a.confidence > b.confidence;
@@ -1130,25 +1068,18 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
   return nms_results;
 }
 
-// Saves image with annotations
 void TensorInferencer::saveAnnotatedImage(
-    const cv::Mat &raw_img_param, // Original image for this detection
-    float x1_model, float y1_model, float x2_model,
-    float y2_model, // Coords relative to model input (target_w_, target_h_)
-    float confidence, const std::string &class_name, int gopIdx,
-    int detection_idx_in_image // Unique index for this detection within this
-                               // specific image
-) {
+    const cv::Mat &raw_img_param, float x1_model, float y1_model,
+    float x2_model, float y2_model, float confidence,
+    const std::string &class_name, int gopIdx, int detection_idx_in_image) {
   if (raw_img_param.empty()) {
     std::cerr << "[WARN][SAVE] Raw image is empty for gopIdx " << gopIdx
               << ", detection " << detection_idx_in_image << ". Cannot save."
               << std::endl;
     return;
   }
-  cv::Mat img_to_save = raw_img_param.clone(); // Work on a copy
+  cv::Mat img_to_save = raw_img_param.clone();
 
-  // Scale model coordinates (relative to target_w_, target_h_) back to
-  // raw_img_param dimensions
   float scale_x_to_raw =
       static_cast<float>(img_to_save.cols) / static_cast<float>(target_w_);
   float scale_y_to_raw =
@@ -1159,7 +1090,6 @@ void TensorInferencer::saveAnnotatedImage(
   int x2_scaled_raw = static_cast<int>(std::round(x2_model * scale_x_to_raw));
   int y2_scaled_raw = static_cast<int>(std::round(y2_model * scale_y_to_raw));
 
-  // Clamp coordinates to be within the image boundaries
   x1_scaled_raw = std::max(0, std::min(x1_scaled_raw, img_to_save.cols - 1));
   y1_scaled_raw = std::max(0, std::min(y1_scaled_raw, img_to_save.rows - 1));
   x2_scaled_raw = std::max(0, std::min(x2_scaled_raw, img_to_save.cols - 1));
@@ -1173,56 +1103,44 @@ void TensorInferencer::saveAnnotatedImage(
     return;
   }
 
-  // Draw rectangle for the detection
   cv::rectangle(img_to_save, cv::Point(x1_scaled_raw, y1_scaled_raw),
                 cv::Point(x2_scaled_raw, y2_scaled_raw), cv::Scalar(0, 255, 0),
-                2); // Green, thickness 2
+                2);
 
-  // Prepare label text (class name and confidence)
   std::ostringstream label_stream;
   label_stream << class_name << " " << std::fixed << std::setprecision(2)
                << confidence;
   std::string label_text = label_stream.str();
 
   int font_face = cv::FONT_HERSHEY_SIMPLEX;
-  double font_scale = 0.6; // Adjusted for potentially smaller boxes
+  double font_scale = 0.6;
   int thickness = 1;
   int baseline = 0;
   cv::Size text_size =
       cv::getTextSize(label_text, font_face, font_scale, thickness, &baseline);
-  baseline += thickness; // Adjust baseline
+  baseline += thickness;
 
-  // Position for label background and text (try to put above the box)
   cv::Point text_origin =
       cv::Point(x1_scaled_raw, y1_scaled_raw - text_size.height - 3);
-  // If label goes off screen at the top, put it inside the box at the top
   if (text_origin.y < text_size.height) {
     text_origin.y = y1_scaled_raw + text_size.height + 3;
   }
-  // Ensure text origin is within image boundaries (simple check for y)
   if (text_origin.y > img_to_save.rows - baseline) {
-    text_origin.y =
-        y2_scaled_raw - baseline - 3; // Try bottom inside if still problematic
+    text_origin.y = y2_scaled_raw - baseline - 3;
   }
-  if (text_origin.y < text_size.height) { // Final check if box is tiny at top
+  if (text_origin.y < text_size.height) {
     text_origin.y = y1_scaled_raw + text_size.height + baseline;
   }
 
-  // Draw filled rectangle for text background
   cv::rectangle(img_to_save,
                 cv::Point(text_origin.x, text_origin.y - text_size.height -
-                                             baseline +
-                                             thickness), // Top-left of text bg
+                                             baseline + thickness),
                 cv::Point(text_origin.x + text_size.width,
-                          text_origin.y + baseline -
-                              thickness), // Bottom-right of text bg
-                cv::Scalar(0, 255, 0),    // Green background
-                cv::FILLED);
-  // Put text on the background
+                          text_origin.y + baseline - thickness),
+                cv::Scalar(0, 255, 0), cv::FILLED);
   cv::putText(img_to_save, label_text, text_origin, font_face, font_scale,
-              cv::Scalar(0, 0, 0), thickness); // Black text
+              cv::Scalar(0, 0, 0), thickness);
 
-  // Construct filename
   std::ostringstream filename_stream;
   filename_stream << image_output_path_ << "/gop" << std::setw(5)
                   << std::setfill('0') << gopIdx << "_obj" << std::setw(3)
@@ -1233,11 +1151,7 @@ void TensorInferencer::saveAnnotatedImage(
 
   try {
     bool success = cv::imwrite(filename, img_to_save);
-    if (success) {
-      // This print is now mostly covered by processDetectionsForOneImage's
-      // console output std::cout << "[SAVE] ✓ Annotated image saved: " <<
-      // filename << std::endl;
-    } else {
+    if (!success) {
       std::cerr << "[ERROR] ✗ Failed to save annotated image: " << filename
                 << " (OpenCV imwrite returned false)" << std::endl;
     }
