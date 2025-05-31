@@ -39,8 +39,8 @@ using InferenceCallback =
 class TensorInferencer {
 public:
   // 构造函数：传入视频的原始高宽，用于计算初始目标尺寸
-  TensorInferencer(int video_height, int video_width,
-                   InferenceCallback callback);
+  TensorInferencer(int video_height, int video_width, std::string object_name,
+                   int interval, float confidence, InferenceCallback callback);
   ~TensorInferencer();
 
   // 主推理接口：收集数据，满BATCH_SIZE后执行推理，并通过回调返回结果
@@ -62,6 +62,10 @@ private:
 
   int target_w_; // 模型输入宽度 (从引擎或计算得出)
   int target_h_; // 模型输入高度 (从引擎或计算得出)
+
+  std::string object_name_;
+  int interval_ = 0;
+  float confidence_ = 0.5f;
 
   int inputIndex_ = -1;
   int outputIndex_ = -1;

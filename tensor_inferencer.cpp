@@ -51,8 +51,10 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
 }
 
 TensorInferencer::TensorInferencer(int video_height, int video_width,
-                                   InferenceCallback callback)
-    : runtime_(nullptr),      // Initialized first, matches declaration order
+                                   std::string object_name, int interval,
+                                   float confidence, InferenceCallback callback)
+    : object_name_(object_name), interval_(interval), confidence_(confidence),
+      runtime_(nullptr),      // Initialized first, matches declaration order
       engine_(nullptr),       // Initialized second
       context_(nullptr),      // Initialized third
       inputDevice_(nullptr),  // Initialized fourth

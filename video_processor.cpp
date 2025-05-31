@@ -109,7 +109,8 @@ bool VideoProcessor::initialize() {
   infer_callback = [this](const std::vector<InferenceResult> &result) {
     this->handleInferenceResult(result);
   };
-  tensor_inferencer.emplace(frame_heigh, frame_width, infer_callback);
+  tensor_inferencer.emplace(frame_heigh, frame_width, infer_callback,
+                            object_name, interval, confidence);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
