@@ -85,7 +85,7 @@ void VideoProcessor::handleInferenceResult(
     std::lock_guard<std::mutex> lock(infer_mutex);
     remaining_infer_tasks--;
   }
-  task_cv.notify_all();
+  infer_cv.notify_all();
 }
 
 bool VideoProcessor::initialize() {
@@ -221,11 +221,17 @@ int VideoProcessor::process() {
   while (true) {
     std::unique_lock<std::mutex> lock(task_mutex);
     if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          if (remaining_decode_tasks.load() == 0) {
-            tensor_inferencer->finalizeInference();
-          }
-          return remaining_decode_tasks.load() == 0 &&
-                 remaining_infer_tasks.load() == 0;
+          return remaining_decode_tasks.load() == 0;
+        })) {
+      tensor_inferencer->finalizeInference();
+      break;
+    }
+  }
+
+  while (true) {
+    std::unique_lock<std::mutex> lock(infer_mutex);
+    if (infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
+          return remaining_infer_tasks.load() == 0;
         })) {
       break;
     }
@@ -270,6 +276,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
     remaining_infer_tasks++;
   }
   infer_cv.notify_all();
+
   {
     std::lock_guard<std::mutex> lock(task_mutex);
     remaining_decode_tasks--;
