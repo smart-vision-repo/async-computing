@@ -1,6 +1,6 @@
 #pragma once
 
-#include "inference_input.hpp"
+#include "inference.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
