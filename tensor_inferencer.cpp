@@ -73,7 +73,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
             << video_height << std::endl;
 
   // 1. 获取 BATCH_SIZE
-  const char *env_batch_size_str = std::getenv("BATCH_SIZE");
+  const char *env_batch_size_str = std::getenv("YOLO_BATCH_SIZE");
   if (env_batch_size_str) {
     try {
       BATCH_SIZE_ = std::stoi(env_batch_size_str);
