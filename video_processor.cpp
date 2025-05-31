@@ -86,7 +86,7 @@ void VideoProcessor::initInferThead() {
 
 void VideoProcessor::handleInferenceResult(
     const std::vector<InferenceResult> &result) {
-  std::cout << "[CALLBACK] 推理完成: " << result.info << std::endl;
+  std::cout << "[CALLBACK] 推理完成: " << std::endl;
 }
 
 bool VideoProcessor::initialize() {
