@@ -1,6 +1,6 @@
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
-#include "inference_input.hpp"
+#include "inference.hpp"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
 #include "yolo_inferencer.h"
@@ -25,6 +25,8 @@ public:
 
 private:
   bool initialize();
+  void initInferThead();
+  void handleInferenceResult(const InferenceResult &result);
   void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);
@@ -54,6 +56,7 @@ private:
   int video_stream_index = -1;
   int frame_width = 0;
   int frame_heigh = 0;
+  InferenceCallback callback;
 };
 
 #endif // VIDEO_PROCESSOR_H
