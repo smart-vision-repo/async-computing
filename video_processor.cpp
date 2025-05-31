@@ -206,16 +206,16 @@ int VideoProcessor::process() {
     }
   }
 
-  while (true) {
-    std::unique_lock<std::mutex> lock(pending_infer_mutex);
-    if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          std::cout << "\rRemaining infer tasks: "
-                    << remaining_decode_tasks.load() << std::flush;
-          return pending_infer_tasks.load() <= 0;
-        })) {
-      break;
-    }
-  }
+  // while (true) {
+  //   std::unique_lock<std::mutex> lock(pending_infer_mutex);
+  //   if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
+  //         std::cout << "\rRemaining infer tasks: "
+  //                   << remaining_decode_tasks.load() << std::flush;
+  //         return pending_infer_tasks.load() <= 0;
+  //       })) {
+  //     break;
+  //   }
+  // }
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
@@ -250,17 +250,18 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
   input.decoded_frames = std::move(frames);
   input.latest_frame_index = gopId;
   tensor_inferencer->infer(input);
-  {
-    std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    pending_infer_tasks++;
-  }
-  pending_infer_cv.notify_all();
+
   {
     std::lock_guard<std::mutex> lock(task_mutex);
     total_decoded_frames += frames.size();
     remaining_decode_tasks -= frames.size();
   }
   task_cv.notify_all();
+  {
+    std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    pending_infer_tasks++;
+  }
+  pending_infer_cv.notify_all();
 }
 
 void VideoProcessor::add_av_packet_to_list(std::vector<AVPacket *> **packages,
