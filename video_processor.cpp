@@ -85,7 +85,7 @@ void VideoProcessor::handleInferenceResult(
     std::lock_guard<std::mutex> lock(infer_mutex);
     remaining_infer_tasks--;
   }
-  task_cv.notify_all()
+  task_cv.notify_all();
 }
 
 bool VideoProcessor::initialize() {
