@@ -250,53 +250,55 @@ int VideoProcessor::process() {
       //   if (pending_infer_cv.wait_for(infer_lock, std::chrono::seconds(2),
       //                                 [this]() {
       //                                   std::cout << "\rRemaining infer
-      //                                   tasks: "
+      //                                       tasks : "
       //                                             <<
       //                                             pending_infer_tasks.load()
-      //                                             << "    " << std::flush;
+      //                                             << "    "
+      //                                             << std::flush;
       //                                   return pending_infer_tasks.load() <=
       //                                   0;
       //                                 })) {
       //     std::cout << "\nAll inference tasks completed." << std::endl;
       //     break;
       //   }
+      // }
+      break;
     }
-    break;
   }
-}
 
-// Cleanup all stored packets
-for (auto &pkt_list : all_pkts) {
-  clear_av_packets(&pkt_list); // Pass address of the vector of AVPacket*
-}
-all_pkts.clear();
+  // Cleanup all stored packets
+  for (auto &pkt_list : all_pkts) {
+    clear_av_packets(&pkt_list); // Pass address of the vector of AVPacket*
+  }
+  all_pkts.clear();
 
-av_packet_free(&packet); // Free the initial allocated packet
-clear_av_packets(pkts);  // Clear and free packets in the current pkts list
-delete pkts;             // Delete the pkts list itself
-pkts = nullptr;
+  av_packet_free(&packet); // Free the initial allocated packet
+  clear_av_packets(pkts);  // Clear and free packets in the current pkts list
+  delete pkts;             // Delete the pkts list itself
+  pkts = nullptr;
 
-std::cout << "-------------------" << std::endl;
-float percentage =
-    (frame_idx > 0) ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx)
-                    : 0.0f;
-std::cout
-    << "Total GOPs processed: " << gop_idx << std::endl
-    << "Interval: " << interval << std::endl
-    << "Total packages for last segment processing: " << total_packages
-    << std::endl // Clarified meaning
-    << "Frames submitted for decoding (estimate): " << decoded_frames
-    << std::endl
-    << "Frames skipped by selection logic: " << skipped_frames << std::endl
-    << "Discrepancy (Total read - submitted for decode - skipped by logic): "
-    << (frame_idx - decoded_frames - skipped_frames) << std::endl
-    << "Percentage of frames submitted for decoding from total read: "
-    << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
-    << "Successfully decoded frames (from callbacks): "
-    << total_decoded_frames.load() << std::endl
-    << "Extraction trigger points (hits): " << total_hits << std::endl;
+  std::cout << "-------------------" << std::endl;
+  float percentage =
+      (frame_idx > 0)
+          ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx)
+          : 0.0f;
+  std::cout
+      << "Total GOPs processed: " << gop_idx << std::endl
+      << "Interval: " << interval << std::endl
+      << "Total packages for last segment processing: " << total_packages
+      << std::endl // Clarified meaning
+      << "Frames submitted for decoding (estimate): " << decoded_frames
+      << std::endl
+      << "Frames skipped by selection logic: " << skipped_frames << std::endl
+      << "Discrepancy (Total read - submitted for decode - skipped by logic): "
+      << (frame_idx - decoded_frames - skipped_frames) << std::endl
+      << "Percentage of frames submitted for decoding from total read: "
+      << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
+      << "Successfully decoded frames (from callbacks): "
+      << total_decoded_frames.load() << std::endl
+      << "Extraction trigger points (hits): " << total_hits << std::endl;
 
-return 0;
+  return 0;
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,

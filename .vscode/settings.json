@@ -83,6 +83,7 @@
         "thread": "cpp",
         "condition_variable": "cpp",
         "filesystem": "cpp",
-        "cassert": "cpp"
+        "cassert": "cpp",
+        "shared_mutex": "cpp"
     }
 }
