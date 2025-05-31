@@ -175,10 +175,7 @@ int VideoProcessor::process() {
   if (hits > 0) {
     std::vector<AVPacket *> decoding_pkts =
         get_packets_for_decoding(pkts, last_frame_in_gop);
-    decoder.decode(decoding_pkts, interval, gop_idx,
-                   [this](std::vector<cv::Mat> frames, int gopId) {
-                     this->onDecoded(std::move(frames), gopId);
-                   });
+    decoder.decode(decoding_pkts, interval, gop_idx);
     {
       std::lock_guard<std::mutex> lock(task_mutex);
       remaining_decode_tasks++;
