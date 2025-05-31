@@ -71,7 +71,7 @@ void VideoProcessor::initInferThead() {
         lock.unlock();
         // inferencer.infer(input);
         if (tensor_inferencer) {
-          tensor_inferencer->infer(input, callback);
+          tensor_inferencer->infer(input);
         }
         lock.lock();
       }
