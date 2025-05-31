@@ -198,10 +198,10 @@ int VideoProcessor::process() {
   while (true) {
     std::unique_lock<std::mutex> lock(task_mutex);
     if (task_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          std::cout << "Remaining decode tasks: "
+          std::cout << "\rRemaining decode tasks: "
                     << remaining_decode_tasks.load()
                     << ", Pending infer tasks: " << pending_infer_tasks.load()
-                    << std::flush();
+                    << std::flush;
           return remaining_decode_tasks.load() == 0;
         })) {
       tensor_inferencer->finalizeInference();
