@@ -441,7 +441,7 @@ int main(int argc, char **argv) {
       break;
     } // Break from batch loop on error
 
-    status = context->enqueueV2(buffers.data(), stream, nullptr);
+    bool status = context->enqueueV2(buffers.data(), stream, nullptr);
     if (!status) { /* error */
       break;
     }
