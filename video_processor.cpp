@@ -258,7 +258,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
   // pending_infer_cv.notify_all();
   {
     std::lock_guard<std::mutex> lock(task_mutex);
-    total_decoded_frames += frame->size();
+    total_decoded_frames += frames->size();
     remaining_decode_tasks -= frames->size();
   }
   task_cv.notify_all();
