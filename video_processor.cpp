@@ -55,11 +55,6 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
   }
-
-  callback = [this](const std::vector<InferenceResult> &result) {
-    this->handleInferenceResult(result);
-  };
-  initInferThead();
 }
 
 void VideoProcessor::initInferThead() {
@@ -124,7 +119,12 @@ bool VideoProcessor::initialize() {
   if (frame_heigh == 0 || frame_width == 0) {
     return false;
   }
-  tensor_inferencer.emplace(frame_heigh, frame_width);
+
+  initInferThead();
+  callback = [this](const std::vector<InferenceResult> &result) {
+    this->handleInferenceResult(result);
+  };
+  tensor_inferencer.emplace(frame_heigh, frame_width, callback);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 

@@ -39,12 +39,13 @@ using InferenceCallback =
 class TensorInferencer {
 public:
   // 构造函数：传入视频的原始高宽，用于计算初始目标尺寸
-  TensorInferencer(int video_height, int video_width);
+  TensorInferencer(int video_height, int video_width,
+                   InferenceCallback callback);
   ~TensorInferencer();
 
   // 主推理接口：收集数据，满BATCH_SIZE后执行推理，并通过回调返回结果
   // 注意：此函数现在是异步的，它收集数据，实际推理可能在后续调用或finalizeInference中发生
-  bool infer(const InferenceInput &input, InferenceCallback callback);
+  bool infer(const InferenceInput &input);
 
   // 结束推理：处理当前缓冲区中剩余的不足一个BATCH_SIZE的数据
   // 调用者告知不再有新的数据输入，处理完剩余数据后，本轮推理结束
