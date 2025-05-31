@@ -8,9 +8,10 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-PacketDecoder::PacketDecoder(std::string video_file_name)
-    : video_file_name(video_file_name), vidIdx(-1), fmtCtx(nullptr),
-      codec(nullptr), codecpar(nullptr), stopThreads(false) {
+PacketDecoder::PacketDecoder(std::string video_file_name,
+                             DecodeCallback callback)
+    : video_file_name(video_file_name), callback(callback), vidIdx(-1),
+      fmtCtx(nullptr), codec(nullptr), codecpar(nullptr), stopThreads(false) {
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
@@ -57,7 +58,7 @@ bool PacketDecoder::initialize() {
 }
 
 void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
-                           int gopId, DecodeCallback callback) {
+                           int gopId) {
   std::vector<AVPacket *> copied_pkts;
   for (const auto *pkt : pkts) {
     if (!pkt)
@@ -70,7 +71,7 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
 
   {
     std::lock_guard<std::mutex> lock(queueMutex);
-    taskQueue.push(DecodeTask{copied_pkts, interval, gopId, callback});
+    taskQueue.push(DecodeTask{copied_pkts, interval, gopId});
   }
   queueCond.notify_one();
 }
@@ -198,7 +199,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 
   try {
-    task.callback(std::move(filtered), task.gopId);
+    callback(std::move(filtered), task.gopId);
   } catch (const std::exception &e) {
     std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
               << e.what() << std::endl;

@@ -35,21 +35,21 @@ private:
 
   void setBatchSize();
   void clear_av_packets(std::vector<AVPacket *> *packages);
-  PacketDecoder decoder;
   std::string video_file_name;
   std::string object_name;
   float confidence;
   int interval;
-  int success_decoded_frames;
   std::queue<InferenceInput> infer_inputs;
   std::mutex pending_infer_mutex;
   std::condition_variable pending_infer_cv;
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
   YoloInferencer inferencer;
+  std::optional<PacketDecoder> decoder;
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
+  std::atomic<int> total_decoded_frames{0};
   std::atomic<int> pending_infer_tasks{0};
   std::mutex task_mutex;
   std::condition_variable task_cv;
@@ -58,7 +58,8 @@ private:
   int frame_width = 0;
   int frame_heigh = 0;
   int BATCH_SIZE_ = 1; // 从环
-  InferenceCallback callback;
+  InferenceCallback infer_callback;
+  DecodeCallback docoder_callback;
 };
 
 #endif // VIDEO_PROCESSOR_H

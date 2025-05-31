@@ -46,10 +46,9 @@ VideoProcessor::~VideoProcessor() {
 VideoProcessor::VideoProcessor(const std::string &video_file_name,
                                const std::string &object_name, float confidence,
                                int interval)
-    : decoder(const_cast<std::string &>(video_file_name)),
-      video_file_name(video_file_name), object_name(object_name),
-      confidence(confidence), interval(interval), success_decoded_frames(0),
-      stop_infer_thread(false), fmtCtx(nullptr), video_stream_index(-1) {
+    : video_file_name(video_file_name), object_name(object_name),
+      confidence(confidence), interval(interval), stop_infer_thread(false),
+      fmtCtx(nullptr), video_stream_index(-1) {
 
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
@@ -102,10 +101,15 @@ bool VideoProcessor::initialize() {
     return false;
   }
 
-  callback = [this](const std::vector<InferenceResult> &result) {
+  docoder_callback = [this](std::vector<cv::Mat> &&frames, int gopId) {
+    this->onDecodedresult(frames, gopId);
+  };
+  decoder.emplace(video_file_name, docoder_callback);
+
+  infer_callback = [this](const std::vector<InferenceResult> &result) {
     this->handleInferenceResult(result);
   };
-  tensor_inferencer.emplace(frame_heigh, frame_width, callback);
+  tensor_inferencer.emplace(frame_heigh, frame_width, infer_callback);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
@@ -143,13 +147,10 @@ int VideoProcessor::process() {
           pool = frame_idx_in_gop - last_frame_in_gop;
           std::vector<AVPacket *> decoding_pkts =
               get_packets_for_decoding(pkts, last_frame_in_gop);
-          decoder.decode(decoding_pkts, interval, gop_idx,
-                         [this](std::vector<cv::Mat> frames, int gopId) {
-                           this->onDecoded(std::move(frames), gopId);
-                         });
+          decoder.decode(decoding_pkts, interval, gop_idx);
           {
             std::lock_guard<std::mutex> lock(task_mutex);
-            remaining_decode_tasks++;
+            remaining_decode_tasks += hits;
           }
           all_pkts.push_back(std::move(decoding_pkts));
         } else {
@@ -238,28 +239,30 @@ int VideoProcessor::process() {
             << "discrepancies: " << frame_idx - decoded_frames - skipped_frames
             << std::endl
             << "percentage: " << percentage << "%" << std::endl
-            << "successfully decoded: " << success_decoded_frames << std::endl
+            << "successfully decoded: " << total_decoded_frames.load()
+            << std::endl
             << "extracted frames: " << total_hits << std::endl;
 
   return 0;
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
-  // std::cout << gopId << "," << frames.size() << std::endl;
+  std::cout << gopId << "," << frames.size() << std::endl;
   // InferenceInput input;
   // input.decoded_frames = std::move(frames);
   // input.object_name = object_name;
   // input.confidence_thresh = confidence;
   // input.gopIdx = gopId;
   // tensor_inferencer->infer(input);
-  {
-    std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    pending_infer_tasks++;
-  }
-  pending_infer_cv.notify_all();
+  // {
+  //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
+  //   pending_infer_tasks++;
+  // }
+  // pending_infer_cv.notify_all();
   {
     std::lock_guard<std::mutex> lock(task_mutex);
-    remaining_decode_tasks--;
+    total_decoded_frames += frame.size();
+    remaining_decode_tasks -= frames.size();
   }
   task_cv.notify_all();
 }
