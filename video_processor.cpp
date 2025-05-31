@@ -325,7 +325,7 @@ void VideoProcessor::clear_av_packets(std::vector<AVPacket *> *pkts) {
   pkts->clear();
 }
 
-void VideoProcessor ::setBatchSize() {
+void VideoProcessor::setBatchSize() {
 
   const char *env_batch_size_str = std::getenv("YOLO_BATCH_SIZE");
   if (env_batch_size_str) {
