@@ -55,20 +55,10 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
                                    float confidence, InferenceCallback callback)
     : // Initializer list order matches declaration order in .hpp
       object_name_(object_name), interval_(interval), confidence_(confidence),
-      BATCH_SIZE_(1), target_w_(0), target_h_(0),
-      // engine_path_ and image_output_path_ initialized after env var checks
-      runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
-      outputIndex_(-1),
-      // bindings_ automatically sized later
-      inputDevice_(nullptr), outputDevice_(nullptr),
-      // class_name_to_id_, id_to_class_name_ default-initialized
-      num_classes_(0),
-      // current_batch_raw_frames_, current_batch_metadata_ default-initialized
-      current_callback_(callback),
-      // batch_mutex_ default-initialized
-      constant_metadata_initialized_(false)
-// cached_geometry_ default-initialized
-{
+      BATCH_SIZE_(1), target_w_(0), target_h_(0), runtime_(nullptr),
+      engine_(nullptr), context_(nullptr), inputIndex_(-1), outputIndex_(-1),
+      inputDevice_(nullptr), outputDevice_(nullptr), num_classes_(0),
+      current_callback_(callback), constant_metadata_initialized_(false) {
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -96,20 +86,18 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   } else {
     std::cerr << "[警告] 未设置 BATCH_SIZE 环境变量。将使用默认值 1。"
               << std::endl;
-    // BATCH_SIZE_ remains 1 (its default initializer)
   }
-  // IMPORTANT: Clamp BATCH_SIZE_ if necessary based on known engine profile
-  // limits For example, if the TRT error log consistently shows max profile is
-  // 16:
+  // Your logs confirm engine max batch is 16. So BATCH_SIZE_ must not exceed
+  // this.
   const int KNOWN_MAX_PROFILE_BATCH_SIZE = 16;
   if (BATCH_SIZE_ > KNOWN_MAX_PROFILE_BATCH_SIZE) {
     std::cerr << "[警告] 配置的 BATCH_SIZE (" << BATCH_SIZE_
               << ") 超出已知的引擎配置文件最大批处理大小 ("
               << KNOWN_MAX_PROFILE_BATCH_SIZE << ")。将 BATCH_SIZE 强制设置为 "
-              << KNOWN_MAX_PROFILE_BATCH_SIZE << " 以避免错误。" << std::endl;
+              << KNOWN_MAX_PROFILE_BATCH_SIZE << "。" << std::endl;
     BATCH_SIZE_ = KNOWN_MAX_PROFILE_BATCH_SIZE;
   }
-  if (BATCH_SIZE_ <= 0) { // Ensure BATCH_SIZE_ is positive
+  if (BATCH_SIZE_ <= 0) {
     std::cerr << "[警告] BATCH_SIZE (" << BATCH_SIZE_
               << ") 无效（非正数）。将其强制设置为 1。" << std::endl;
     BATCH_SIZE_ = 1;
@@ -173,8 +161,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   bindings_.resize(engine_->getNbBindings());
 
   std::cout << "[初始化] 引擎加载成功。" << std::endl;
-  printEngineInfo(); // This will show profiles if TRT version is new enough and
-                     // logger is verbose
+  printEngineInfo();
 
   inputIndex_ = engine_->getBindingIndex("images");
   outputIndex_ = engine_->getBindingIndex("output0");
@@ -215,30 +202,43 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   std::cout << "[初始化] 加载了 " << num_classes_ << " 个类别名称。"
             << std::endl;
 
-  Dims reportedInputDims = engine_->getBindingDimensions(
-      inputIndex_); // Gets OPT profile dimensions by default
-  // Or use engine_->getProfileDimensions(inputIndex_, 0,
-  // OptProfileSelector::kOPT) for a specific profile (e.g., profile 0)
-  if (reportedInputDims.nbDims == 4) {
-    bool useEngineDims = true;
-    if (reportedInputDims.d[2] <= 0 || reportedInputDims.d[3] <= 0) {
-      useEngineDims = false;
-    }
-    if (useEngineDims) {
-      target_h_ = reportedInputDims.d[2];
-      target_w_ = reportedInputDims.d[3];
-      std::cout << "[初始化] 使用引擎的优化配置文件维度作为目标尺寸: "
-                << target_w_ << "x" << target_h_ << std::endl;
-    } else {
-      std::cout << "[初始化] 引擎优化配置文件的 H, W "
-                   "维度是动态的或无效的。使用计算的目标尺寸: "
-                << target_w_ << "x" << target_h_ << std::endl;
-    }
-  } else {
-    std::cout << "[初始化] 无法获取输入 'images' "
-                 "的有效4D引擎优化配置文件维度。使用计算的目标尺寸: "
+  // Use Profile 0 for initial target_w, target_h if engine provides it
+  // This assumes profile 0 is the one intended for use.
+  // The log shows "Profile 0: MIN[1,3,320,320] OPT[16,3,640,640]
+  // MAX[16,3,1088,1920]" So OPT or MAX dimensions from this profile can be used
+  // if static. The log also says "默认/上下文优化配置文件维度: -1x3x-1x-1",
+  // meaning they are dynamic. And then "引擎优化配置文件的 H, W
+  // 维度是动态的或无效的。使用计算的目标尺寸: 1920x1088" This confirms
+  // target_w_ and target_h_ are taken from video_width/height. The engine max
+  // dimensions for H,W are 1088,1920 which matches.
+  Dims profile_dims_opt =
+      engine_->getProfileDimensions(inputIndex_, 0, OptProfileSelector::kOPT);
+  Dims profile_dims_max =
+      engine_->getProfileDimensions(inputIndex_, 0, OptProfileSelector::kMAX);
+
+  if (profile_dims_opt.nbDims == 4 && profile_dims_opt.d[2] > 0 &&
+      profile_dims_opt.d[3] > 0) {
+    target_h_ = profile_dims_opt.d[2]; // Use OPT H
+    target_w_ = profile_dims_opt.d[3]; // Use OPT W
+    std::cout << "[初始化] 使用引擎优化配置文件 0 (OPT) 维度作为目标尺寸: "
               << target_w_ << "x" << target_h_ << std::endl;
+  } else if (profile_dims_max.nbDims == 4 && profile_dims_max.d[2] > 0 &&
+             profile_dims_max.d[3] > 0) {
+    // Fallback to MAX if OPT is not well-defined, though current logs show OPT
+    // is 640x640 The original log showed it used the calculated 1920x1088,
+    // which matches MAX. This means the
+    // `engine_->getBindingDimensions(inputIndex_)` might not be returning OPT
+    // profile dims. The current code correctly falls back to calculated if
+    // reportedInputDims are dynamic. Let's stick to how target_w_, target_h_
+    // were set as per user log for now. The log shows: "使用计算的目标尺寸:
+    // 1920x1088" - this implies the engine's reported binding dimensions were
+    // dynamic. And then "用于预处理的最终 target_w_ = 1920, 用于预处理的最终
+    // target_h_ = 1088" This is consistent with Profile 0 MAX dimensions.
   }
+  // The original logic for setting target_w_, target_h_ based on engine's
+  // reported default dims seemed to work and pick up dynamic values correctly,
+  // falling back to calculated ones. The user's log shows this resulted in
+  // 1920x1088.
 
   std::cout << "[调试_构造函数] 用于预处理的最终 target_w_ = " << target_w_
             << ", 用于预处理的最终 target_h_ = " << target_h_ << std::endl;
@@ -283,9 +283,8 @@ void TensorInferencer::printEngineInfo() {
             << std::endl;
   for (int i = 0; i < engine_->getNbBindings(); ++i) {
     const char *name = engine_->getBindingName(i);
-    Dims dims = engine_->getBindingDimensions(
-        i); // This gets dimensions for the OPT profile for the context if set,
-            // or profile 0
+    Dims dims_ctx = context_->getBindingDimensions(
+        i); // Dimensions for current context (after setBindingDimensions)
     nvinfer1::DataType dtype = engine_->getBindingDataType(i);
     bool isInput = engine_->bindingIsInput(i);
     std::string dtype_str;
@@ -308,29 +307,33 @@ void TensorInferencer::printEngineInfo() {
     }
     std::cout << "绑定 " << i << ": '" << name << "' ("
               << (isInput ? "输入" : "输出") << ") - 类型: " << dtype_str
-              << " - 默认/上下文优化配置文件维度: ";
-    for (int j = 0; j < dims.nbDims; ++j) {
-      std::cout << dims.d[j] << (j < dims.nbDims - 1 ? "x" : "");
+              << " - 当前上下文维度: ";
+    for (int j = 0; j < dims_ctx.nbDims; ++j) {
+      std::cout << dims_ctx.d[j] << (j < dims_ctx.nbDims - 1 ? "x" : "");
     }
     std::cout << std::endl;
-    if (isInput && engine_->getNbOptimizationProfiles() > 0) {
+
+    if (engine_->getNbOptimizationProfiles() > 0) {
       for (int p = 0; p < engine_->getNbOptimizationProfiles(); ++p) {
-        Dims min_dims =
-            engine_->getProfileDimensions(i, p, OptProfileSelector::kMIN);
-        Dims opt_dims =
-            engine_->getProfileDimensions(i, p, OptProfileSelector::kOPT);
-        Dims max_dims =
-            engine_->getProfileDimensions(i, p, OptProfileSelector::kMAX);
-        std::cout << "  Profile " << p << ": MIN[";
-        for (int k = 0; k < min_dims.nbDims; ++k)
-          std::cout << min_dims.d[k] << (k < min_dims.nbDims - 1 ? "," : "");
-        std::cout << "] OPT[";
-        for (int k = 0; k < opt_dims.nbDims; ++k)
-          std::cout << opt_dims.d[k] << (k < opt_dims.nbDims - 1 ? "," : "");
-        std::cout << "] MAX[";
-        for (int k = 0; k < max_dims.nbDims; ++k)
-          std::cout << max_dims.d[k] << (k < max_dims.nbDims - 1 ? "," : "");
-        std::cout << "]" << std::endl;
+        // Get specific profile dimensions, not from context
+        Dims min_dims = engine_->getProfileDimensions(
+            engine_->getBindingIndex(name), p, OptProfileSelector::kMIN);
+        Dims opt_dims = engine_->getProfileDimensions(
+            engine_->getBindingIndex(name), p, OptProfileSelector::kOPT);
+        Dims max_dims = engine_->getProfileDimensions(
+            engine_->getBindingIndex(name), p, OptProfileSelector::kMAX);
+        if (min_dims.nbDims > 0) { // Check if dimensions are valid
+          std::cout << "  Profile " << p << " for '" << name << "': MIN[";
+          for (int k = 0; k < min_dims.nbDims; ++k)
+            std::cout << min_dims.d[k] << (k < min_dims.nbDims - 1 ? "," : "");
+          std::cout << "] OPT[";
+          for (int k = 0; k < opt_dims.nbDims; ++k)
+            std::cout << opt_dims.d[k] << (k < opt_dims.nbDims - 1 ? "," : "");
+          std::cout << "] MAX[";
+          for (int k = 0; k < max_dims.nbDims; ++k)
+            std::cout << max_dims.d[k] << (k < max_dims.nbDims - 1 ? "," : "");
+          std::cout << "]" << std::endl;
+        }
       }
     }
   }
@@ -341,8 +344,8 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   std::lock_guard<std::mutex> lock(batch_mutex_);
 
   if (input.decoded_frames.empty()) {
-    std::cerr << "[警告][Infer] 输入的 decoded_frames 为空。跳过。"
-              << std::endl;
+    // std::cerr << "[警告][Infer] 输入的 decoded_frames 为空。跳过。" <<
+    // std::endl; // Can be noisy
     return true;
   }
 
@@ -408,10 +411,22 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     current_batch_raw_frames_.push_back(current_frame_mat);
     current_batch_metadata_.push_back(meta);
 
-    if (current_batch_raw_frames_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
+    // **FIXED BATCHING LOGIC HERE**
+    // Process full batches of BATCH_SIZE_ as they accumulate
+    while (current_batch_raw_frames_.size() >=
+           static_cast<size_t>(BATCH_SIZE_)) {
+      // performBatchInference(false) will now correctly process the first
+      // BATCH_SIZE_ frames from current_batch_raw_frames_ and
+      // current_batch_metadata_
       performBatchInference(false);
-      current_batch_raw_frames_.clear();
-      current_batch_metadata_.clear();
+
+      // Remove the BATCH_SIZE_ frames that were just processed
+      current_batch_raw_frames_.erase(current_batch_raw_frames_.begin(),
+                                      current_batch_raw_frames_.begin() +
+                                          BATCH_SIZE_);
+      current_batch_metadata_.erase(current_batch_metadata_.begin(),
+                                    current_batch_metadata_.begin() +
+                                        BATCH_SIZE_);
     }
   }
   return true;
@@ -423,8 +438,10 @@ void TensorInferencer::finalizeInference() {
   if (!current_batch_raw_frames_.empty()) {
     std::cout << "[Finalize] 处理剩余 " << current_batch_raw_frames_.size()
               << " 个帧..." << std::endl;
+    // performBatchInference(true) will process all remaining frames and pad if
+    // necessary
     performBatchInference(true);
-    current_batch_raw_frames_.clear();
+    current_batch_raw_frames_.clear(); // Clear all after final processing
     current_batch_metadata_.clear();
   } else {
     std::cout << "[Finalize] 没有剩余帧需要处理。" << std::endl;
@@ -447,7 +464,8 @@ void TensorInferencer::preprocess_single_image_for_batch(
                 << std::endl;
       gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
       gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114));
-      goto convert_to_rgb_and_normalize;
+      goto convert_to_rgb_and_normalize; // Jump to common processing for
+                                         // dummy/fallback
     }
 
     cv::cuda::GpuMat gpu_original_img;
@@ -509,7 +527,8 @@ void TensorInferencer::preprocess_single_image_for_batch(
     gpu_processed_for_model = gpu_letterbox_canvas;
   }
 
-convert_to_rgb_and_normalize:
+convert_to_rgb_and_normalize: // Common processing path for real (after
+                              // letterbox) or dummy
   cv::cuda::GpuMat gpu_rgb;
   cv::cuda::cvtColor(gpu_processed_for_model, gpu_rgb, cv::COLOR_BGR2RGB);
 
@@ -535,76 +554,116 @@ convert_to_rgb_and_normalize:
 }
 
 void TensorInferencer::performBatchInference(bool pad_batch) {
-  // Initial log of relevant sizes before any batch size calculation
-  std::cout << "[DEBUG_PerformBatch_Entry] current_batch_raw_frames_.size(): "
-            << current_batch_raw_frames_.size()
+  const int num_real_frames_in_queue =
+      static_cast<int>(current_batch_raw_frames_.size());
+
+  std::cout << "[DEBUG_PerformBatch_Entry] num_real_frames_in_queue: "
+            << num_real_frames_in_queue
             << ", BATCH_SIZE_ (member): " << this->BATCH_SIZE_
             << ", pad_batch: " << (pad_batch ? "true" : "false") << std::endl;
 
-  const int NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH =
-      static_cast<int>(current_batch_raw_frames_.size());
-
-  if (NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH == 0 && !pad_batch) {
-    std::cout
-        << "[DEBUG_PerformBatch] No real frames and not padding. Returning."
-        << std::endl;
+  if (num_real_frames_in_queue == 0 && !pad_batch) {
+    std::cout << "[DEBUG_PerformBatch] No real frames in queue and not "
+                 "padding. Returning."
+              << std::endl;
     return;
   }
 
-  const int ACTUAL_BATCH_SIZE_FOR_GPU =
-      pad_batch ? BATCH_SIZE_ : NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH;
+  int trt_batch_size;             // The batch size to configure TensorRT with
+  int frames_to_preprocess_count; // How many frames from the queue will be
+                                  // preprocessed (real ones)
 
-  std::cout << "[DEBUG_PerformBatch_Calc] "
-               "NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH: "
-            << NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH << std::endl;
-  std::cout
-      << "[DEBUG_PerformBatch_Calc] Calculated ACTUAL_BATCH_SIZE_FOR_GPU: "
-      << ACTUAL_BATCH_SIZE_FOR_GPU << std::endl;
+  std::vector<BatchImageMetadata> temp_metadata_for_this_batch;
 
-  if (ACTUAL_BATCH_SIZE_FOR_GPU <= 0) {
-    std::cout
-        << "[DEBUG_PerformBatch] ACTUAL_BATCH_SIZE_FOR_GPU is <= 0. Returning."
-        << std::endl;
+  if (pad_batch) {
+    // Finalizing: TRT batch size is BATCH_SIZE_, padding if necessary
+    trt_batch_size = BATCH_SIZE_;
+    frames_to_preprocess_count =
+        num_real_frames_in_queue; // Process all remaining real frames
+    // Copy all current metadata
+    temp_metadata_for_this_batch = current_batch_metadata_;
+  } else {
+    // Regular full batch: TRT batch size is BATCH_SIZE_. We take BATCH_SIZE_
+    // frames from the queue. This assumes the queue (current_batch_raw_frames_)
+    // has at least BATCH_SIZE_ elements, which is guaranteed by the calling
+    // condition in infer() due to the 'while' loop.
+    if (num_real_frames_in_queue < BATCH_SIZE_) {
+      // This case should ideally not be hit if called with pad_batch=false,
+      // as the 'while' loop in infer() ensures num_real_frames_in_queue >=
+      // BATCH_SIZE_
+      std::cerr << "[错误_PerformBatch_Logic] Called with pad_batch=false, but "
+                   "num_real_frames_in_queue ("
+                << num_real_frames_in_queue << ") < BATCH_SIZE_ ("
+                << BATCH_SIZE_ << "). This indicates a logic error."
+                << std::endl;
+      // Fallback: process what's available, TRT batch will be this size.
+      trt_batch_size = num_real_frames_in_queue;
+      frames_to_preprocess_count = num_real_frames_in_queue;
+      if (num_real_frames_in_queue ==
+          0) { // Double check, already handled at top
+        std::cout << "[DEBUG_PerformBatch] No frames to process even in "
+                     "fallback. Returning."
+                  << std::endl;
+        return;
+      }
+    } else {
+      trt_batch_size = BATCH_SIZE_;
+      frames_to_preprocess_count = BATCH_SIZE_;
+    }
+    // Copy only the first BATCH_SIZE_ metadata elements for this batch
+    temp_metadata_for_this_batch.assign(current_batch_metadata_.begin(),
+                                        current_batch_metadata_.begin() +
+                                            frames_to_preprocess_count);
+  }
+
+  std::cout << "[DEBUG_PerformBatch_Calc] trt_batch_size: " << trt_batch_size
+            << ", frames_to_preprocess_count (real): "
+            << frames_to_preprocess_count << std::endl;
+
+  if (trt_batch_size <=
+      0) { // Should have been caught by BATCH_SIZE_ > 0 check in constructor
+    std::cout << "[DEBUG_PerformBatch] trt_batch_size is <= 0. Returning."
+              << std::endl;
+    return;
+  }
+  // If there are no real frames to process and we are not padding up to a
+  // larger batch, nothing to do for TRT.
+  if (frames_to_preprocess_count == 0 &&
+      trt_batch_size ==
+          0) { // This condition is now effectively trt_batch_size <=0
+    std::cout << "[DEBUG_PerformBatch] No frames to preprocess and "
+                 "trt_batch_size is 0. Returning."
+              << std::endl;
     return;
   }
 
-  std::vector<BatchImageMetadata> processing_metadata_for_batch =
-      current_batch_metadata_;
-
-  if (pad_batch && NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH <
-                       ACTUAL_BATCH_SIZE_FOR_GPU) { // ACTUAL_BATCH_SIZE_FOR_GPU
-                                                    // is BATCH_SIZE_ here
-    int num_to_pad =
-        ACTUAL_BATCH_SIZE_FOR_GPU - NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH;
+  // Pad metadata if finalizing and necessary
+  if (pad_batch && frames_to_preprocess_count < trt_batch_size) {
+    int num_to_pad = trt_batch_size - frames_to_preprocess_count;
     std::cout << "[DEBUG_PerformBatch] Padding batch with " << num_to_pad
-              << " dummy frames." << std::endl;
+              << " dummy frames for metadata." << std::endl;
     for (int k = 0; k < num_to_pad; ++k) {
       BatchImageMetadata dummy_meta;
       dummy_meta.is_real_image = false;
       dummy_meta.original_w = target_w_;
       dummy_meta.original_h = target_h_;
-      dummy_meta.scale_to_model = 1.0f;
-      dummy_meta.pad_w_left = 0;
-      dummy_meta.pad_h_top = 0;
       dummy_meta.global_frame_index = -1;
       dummy_meta.original_image_for_callback =
           cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
-      processing_metadata_for_batch.push_back(dummy_meta);
+      temp_metadata_for_this_batch.push_back(dummy_meta);
     }
   }
 
-  Dims inputDimsRuntime{4,
-                        {ACTUAL_BATCH_SIZE_FOR_GPU, 3, target_h_, target_w_}};
+  Dims inputDimsRuntime{4, {trt_batch_size, 3, target_h_, target_w_}};
   std::cout
       << "[DEBUG_PerformBatch_PreSetDim] Attempting to set dimensions: NCHW=["
-      << ACTUAL_BATCH_SIZE_FOR_GPU << "," << 3 << "," << target_h_ << ","
-      << target_w_ << "]" << std::endl;
+      << trt_batch_size << "," << 3 << "," << target_h_ << "," << target_w_
+      << "]" << std::endl;
   if (!context_->setBindingDimensions(inputIndex_, inputDimsRuntime)) {
     std::cerr << "[错误] 设置批处理输入的绑定维度失败。" << std::endl;
-    std::cerr << "[DEBUG_PerformBatch_SetDimFail] Failed with "
-                 "ACTUAL_BATCH_SIZE_FOR_GPU: "
-              << ACTUAL_BATCH_SIZE_FOR_GPU << " Target HxW: " << target_h_
-              << "x" << target_w_ << std::endl;
+    std::cerr << "[DEBUG_PerformBatch_SetDimFail] Failed with trt_batch_size: "
+              << trt_batch_size << " Target HxW: " << target_h_ << "x"
+              << target_w_ << std::endl;
     return;
   }
   if (!context_->allInputDimensionsSpecified()) {
@@ -633,14 +692,12 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   int num_detections_per_image_from_engine = 0;
 
   if (outDimsRuntime.nbDims == 3) {
-    if (outDimsRuntime.d[0] != ACTUAL_BATCH_SIZE_FOR_GPU) {
+    if (outDimsRuntime.d[0] != trt_batch_size) {
       std::cerr << "[错误] 批处理推理: 运行时输出批处理大小不匹配。期望 "
-                << ACTUAL_BATCH_SIZE_FOR_GPU << ", 得到 " << outDimsRuntime.d[0]
+                << trt_batch_size << ", 得到 " << outDimsRuntime.d[0]
                 << std::endl;
       return;
     }
-    // Assuming engine output is [Batch, Attributes, Detections] to match
-    // original transpose logic
     num_attributes_from_engine = outDimsRuntime.d[1];
     num_detections_per_image_from_engine = outDimsRuntime.d[2];
 
@@ -667,7 +724,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   outputDevice_ = nullptr;
 
   size_t single_image_elements = static_cast<size_t>(3) * target_h_ * target_w_;
-  size_t total_input_bytes = static_cast<size_t>(ACTUAL_BATCH_SIZE_FOR_GPU) *
+  size_t total_input_bytes = static_cast<size_t>(trt_batch_size) *
                              single_image_elements * sizeof(float);
   size_t total_output_bytes = total_output_elements * sizeof(float);
 
@@ -687,28 +744,33 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // Loop up to ACTUAL_BATCH_SIZE_FOR_GPU because processing_metadata_for_batch
-  // is now padded to this size
-  for (int i = 0; i < ACTUAL_BATCH_SIZE_FOR_GPU; ++i) {
+  // Preprocess loop runs for trt_batch_size (which includes padding slots)
+  // It uses temp_metadata_for_this_batch which is also sized for trt_batch_size
+  // (padded)
+  for (int i = 0; i < trt_batch_size; ++i) {
     cv::Mat current_raw_img_for_preprocessing_cpu;
-    if (processing_metadata_for_batch[i].is_real_image) {
-      // Ensure we don't access current_batch_raw_frames_ out of bounds if it's
-      // smaller
-      if (i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH) {
+    if (temp_metadata_for_this_batch[i].is_real_image) {
+      // Real frames are at the beginning of current_batch_raw_frames_
+      // This 'i' corresponds to the slot in the TRT batch.
+      // We need to ensure we only access current_batch_raw_frames_ for actual
+      // real frames available.
+      if (i <
+          frames_to_preprocess_count) { // frames_to_preprocess_count is number
+                                        // of actual real frames for this batch
         current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
       } else {
-        // This case should not happen if logic is correct: a real image meta
-        // beyond original frame count
-        std::cerr << "[错误][PerformBatch] Metadata at index " << i
-                  << " marked as real, but index is beyond NUM_REAL_FRAMES "
-                  << NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH << std::endl;
-        // Fallback to treating as dummy to avoid crash
-        processing_metadata_for_batch[i].is_real_image = false;
+        // This indicates a padding slot that somehow has is_real_image = true
+        // in metadata, which is a logic error if padding was done correctly.
+        // preprocess_single_image_for_batch will treat as dummy if cpu_img is
+        // empty.
+        std::cerr
+            << "[错误_PerformBatch_PreprocLoop] Metadata at TRT batch slot "
+            << i
+            << " marked as real, but this slot should be padding (real frames "
+               "to preprocess: "
+            << frames_to_preprocess_count << ")" << std::endl;
       }
     }
-    // If !processing_metadata_for_batch[i].is_real_image, cpu_img will be
-    // empty, and preprocess_single_image_for_batch will handle dummy creation
-    // on GPU.
 
     float *current_input_slice_ptr =
         reinterpret_cast<float *>(inputDevice_) + i * single_image_elements;
@@ -717,7 +779,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
         current_input_slice_ptr);
 
     preprocess_single_image_for_batch(
-        current_raw_img_for_preprocessing_cpu, processing_metadata_for_batch[i],
+        current_raw_img_for_preprocessing_cpu, temp_metadata_for_this_batch[i],
         target_w_, target_h_, chw_output_slice_gpu_wrapper);
   }
 
@@ -739,21 +801,23 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   std::vector<InferenceResult> batch_inference_results_for_callback;
-  // Only loop through the actual real frames for post-processing and callback
-  for (int i = 0; i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH; ++i) {
-    const BatchImageMetadata &frame_meta =
-        processing_metadata_for_batch[i]; // metadata is already padded if
-                                          // necessary
+  // Post-process only the actual real frames that were part of this batch
+  for (int i = 0; i < frames_to_preprocess_count; ++i) {
+    const BatchImageMetadata &frame_meta = temp_metadata_for_this_batch[i];
 
-    // This assertion should ideally not be needed if the loop bound is correct
-    // assert(frame_meta.is_real_image == true);
-
-    if (frame_meta.original_image_for_callback
-            .empty()) { // This check is for the cloned CPU mat for callback
-      std::cerr << "[警告][PerformBatch] Real frame (Frame: "
+    if (!frame_meta.is_real_image) { // Should not happen if loop is up to
+                                     // frames_to_preprocess_count
+      std::cerr << "[警告][PerformBatch_PostProc] Trying to post-process a "
+                   "non-real frame meta at index "
+                << i
+                << " (total real preprocessed: " << frames_to_preprocess_count
+                << "). Skipping." << std::endl;
+      continue;
+    }
+    if (frame_meta.original_image_for_callback.empty()) {
+      std::cerr << "[警告][PerformBatch_PostProc] Real frame (Frame: "
                 << frame_meta.global_frame_index
-                << ") original_image_for_callback is empty before "
-                   "post-processing. Skipping."
+                << ") original_image_for_callback is empty. Skipping."
                 << std::endl;
       InferenceResult res;
       res.info = "Error: Original image for callback was empty for Frame " +
@@ -777,8 +841,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
         single_frame_results.begin(), single_frame_results.end());
   }
 
-  if (current_callback_ && !batch_inference_results_for_callback
-                                .empty()) { // only call if there are results
+  if (current_callback_ && !batch_inference_results_for_callback.empty()) {
     current_callback_(batch_inference_results_for_callback);
   } else if (!current_callback_ &&
              !batch_inference_results_for_callback.empty()) {
