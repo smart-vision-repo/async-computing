@@ -12,71 +12,21 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-// 使用 nvinfer1 命名空间
-using namespace nvinfer1;
-
-// TensorRT 日志记录器
-class TrtLogger : public ILogger {
-  void log(Severity severity, const char *msg) noexcept override {
-    // 只打印警告及以上级别的信息
-    if (severity <= Severity::kWARNING) {
-      std::cout << "[TRT] " << msg << std::endl;
-    }
-  }
-} gLogger; // 全局日志记录器实例
-
-// 从文件读取引擎数据
-std::vector<char>
-TensorInferencer::readEngineFile(const std::string &enginePath) {
-  std::ifstream file(enginePath, std::ios::binary);
-  if (!file.good()) {
-    std::cerr << "[错误] 打开引擎文件失败: " << enginePath << std::endl;
-    return {};
-  }
-  file.seekg(0, file.end);
-  size_t size = file.tellg();
-  file.seekg(0, file.beg);
-  std::vector<char> engineData(size);
-  if (size > 0) {
-    file.read(engineData.data(), size);
-  }
-  file.close();
-  return engineData;
-}
-
-// 将值四舍五入到最接近的基数倍数
-int TensorInferencer::roundToNearestMultiple(int val, int base) {
-  return ((val + base / 2) / base) * base;
-}
-
-#include "tensor_inferencer.hpp"
-#include <algorithm>
-#include <cassert>
-#include <cmath>
-#include <cstdlib> // For std::getenv, std::exit, std::stoi
-#include <fstream>
-#include <iomanip>
-#include <iostream>
-#include <numeric>
-#include <sstream> // For std::ostringstream
-
-#include <opencv2/highgui/highgui.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
-
 // Using nvinfer1 namespace
 using namespace nvinfer1;
 
-// TensorRT Logger (assuming gLogger is defined as before or this is
-// self-contained)
+// TensorRT Logger - Defined ONCE
 class TrtLogger : public ILogger {
   void log(Severity severity, const char *msg) noexcept override {
+    // Only print warnings and above
     if (severity <= Severity::kWARNING) {
       std::cout << "[TRT] " << msg << std::endl;
     }
   }
-} gLogger;
+};
+TrtLogger gLogger; // Global logger instance - Defined ONCE
 
-// Definition for readEngineFile (static method)
+// Static method definition for readEngineFile - Defined ONCE
 std::vector<char>
 TensorInferencer::readEngineFile(const std::string &enginePath) {
   std::ifstream file(enginePath, std::ios::binary);
@@ -95,7 +45,7 @@ TensorInferencer::readEngineFile(const std::string &enginePath) {
   return engineData;
 }
 
-// Definition for roundToNearestMultiple (static method)
+// Static method definition for roundToNearestMultiple - Defined ONCE
 int TensorInferencer::roundToNearestMultiple(int val, int base) {
   return ((val + base / 2) / base) * base;
 }
@@ -107,14 +57,14 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       inputDevice_(nullptr),  // Initialized fourth
       outputDevice_(nullptr), // Initialized fifth
       // bindings_ is default-initialized (empty vector)
-      // target_w_, target_h_ are initialized below
-      inputIndex_(-1),  // In-class initialization is used, but can be explicit
+      // target_w_, target_h_ are initialized below in the constructor body
+      inputIndex_(-1),  // In-class initialization is used
       outputIndex_(-1), // In-class initialization is used
       // class_name_to_id_, id_to_class_name_ are default-initialized
       num_classes_(0), // In-class initialization is used
       // engine_path_, image_output_path_ are default-initialized (empty
       // strings)
-      BATCH_SIZE_(1) // In-class initialization is used
+      BATCH_SIZE_(1) // In-class initialization is used, but overridden below
 // current_batch_inputs_, current_batch_metadata_ are default-initialized
 // current_callback_ is default-initialized
 // batch_mutex_ is default-initialized
@@ -144,7 +94,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   } else {
     std::cerr << "[警告] 未设置 BATCH_SIZE 环境变量。将使用默认值 1。"
               << std::endl;
-    BATCH_SIZE_ = 1; // Default if not set
+    BATCH_SIZE_ = 1;
   }
   std::cout << "[初始化] 使用 BATCH_SIZE: " << BATCH_SIZE_ << std::endl;
 
@@ -190,20 +140,18 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   }
   image_output_path_ = output_path_env;
 
-  auto engineData = readEngineFile(engine_path_);
+  auto engineData = readEngineFile(engine_path_); // Static call
   if (engineData.empty()) {
     std::cerr << "[错误] 读取引擎数据失败。" << std::endl;
     std::exit(EXIT_FAILURE);
   }
 
-  runtime_ =
-      createInferRuntime(gLogger); // runtime_ is already initialized to nullptr
+  runtime_ = createInferRuntime(gLogger);
   assert(runtime_ != nullptr && "TensorRT runtime 创建失败。");
-  engine_ = runtime_->deserializeCudaEngine(
-      engineData.data(), engineData.size()); // engine_ is already initialized
+  engine_ =
+      runtime_->deserializeCudaEngine(engineData.data(), engineData.size());
   assert(engine_ != nullptr && "TensorRT 引擎反序列化失败。");
-  context_ =
-      engine_->createExecutionContext(); // context_ is already initialized
+  context_ = engine_->createExecutionContext();
   assert(context_ != nullptr && "TensorRT 执行上下文创建失败。");
 
   bindings_.resize(engine_->getNbBindings());
@@ -211,10 +159,8 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   std::cout << "[初始化] 引擎加载成功。" << std::endl;
   printEngineInfo();
 
-  inputIndex_ =
-      engine_->getBindingIndex("images"); // inputIndex_ has in-class init
-  outputIndex_ =
-      engine_->getBindingIndex("output0"); // outputIndex_ has in-class init
+  inputIndex_ = engine_->getBindingIndex("images");
+  outputIndex_ = engine_->getBindingIndex("output0");
 
   if (outputIndex_ < 0) {
     for (int i = 0; i < engine_->getNbBindings(); ++i) {
@@ -250,7 +196,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       idx++;
     }
   }
-  num_classes_ = class_name_to_id_.size(); // num_classes_ has in-class init
+  num_classes_ = class_name_to_id_.size();
   std::cout << "[初始化] 加载了 " << num_classes_ << " 个类别名称。"
             << std::endl;
 
@@ -292,12 +238,11 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
 }
 
 TensorInferencer::~TensorInferencer() {
-  // 确保在析构前处理完所有剩余数据
   if (!current_batch_inputs_.empty()) {
     std::cout
         << "[析构] 检测到未处理的批处理数据。正在执行 finalizeInference..."
         << std::endl;
-    finalizeInference(); // 确保处理剩余数据
+    finalizeInference();
   }
 
   if (inputDevice_)
@@ -320,7 +265,7 @@ void TensorInferencer::printEngineInfo() {
   std::cout << "绑定数量: " << engine_->getNbBindings() << std::endl;
   for (int i = 0; i < engine_->getNbBindings(); ++i) {
     const char *name = engine_->getBindingName(i);
-    Dims dims = engine_->getBindingDimensions(i); // 这些是优化配置文件的维度
+    Dims dims = engine_->getBindingDimensions(i);
     nvinfer1::DataType dtype = engine_->getBindingDataType(i);
     bool isInput = engine_->bindingIsInput(i);
     std::string dtype_str;
@@ -354,37 +299,32 @@ void TensorInferencer::printEngineInfo() {
 
 bool TensorInferencer::infer(const InferenceInput &input,
                              InferenceCallback callback) {
-  std::lock_guard<std::mutex> lock(batch_mutex_); // 保护共享数据
+  std::lock_guard<std::mutex> lock(batch_mutex_);
 
   if (current_batch_inputs_.empty()) {
-    // 这是新批次的第一个输入，存储回调函数
     current_callback_ = callback;
   } else if (callback != current_callback_ && current_callback_ != nullptr) {
     std::cout << "[警告][Infer] "
                  "新的回调函数与当前批次的回调函数不同。将使用批次开始时设置的"
                  "回调函数。"
               << std::endl;
-    // 或者，可以选择处理这种情况，例如立即处理旧批次
   }
 
   current_batch_inputs_.push_back(input);
 
-  // 为这个输入创建元数据
   BatchImageMetadata meta;
-  meta.is_real_image = true; // 假设所有通过 infer 传入的都是真实图像
+  meta.is_real_image = true;
   if (!input.decoded_frames.empty() && !input.decoded_frames[0].empty()) {
     meta.original_w = input.decoded_frames[0].cols;
     meta.original_h = input.decoded_frames[0].rows;
-    meta.original_image_for_callback =
-        input.decoded_frames[0].clone(); // 保存原始图像
+    meta.original_image_for_callback = input.decoded_frames[0].clone();
   } else {
     std::cerr << "[警告][Infer] 输入的 decoded_frames 为空或第一个帧为空。GOP: "
               << input.gopIdx << std::endl;
-    meta.original_w = target_w_; // 使用模型尺寸作为占位符
+    meta.original_w = target_w_;
     meta.original_h = target_h_;
     meta.original_image_for_callback =
-        cv::Mat(target_h_, target_w_, CV_8UC3,
-                cv::Scalar(114, 114, 114)); // 创建一个灰色图像
+        cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
   }
   meta.gopIdx_original = input.gopIdx;
   meta.object_name_original = input.object_name;
@@ -398,21 +338,21 @@ bool TensorInferencer::infer(const InferenceInput &input,
 
   if (current_batch_inputs_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
     std::cout << "[Infer] 批次已满。执行推理..." << std::endl;
-    performBatchInference(false); // 不填充，因为批次已满
+    performBatchInference(false);
     current_batch_inputs_.clear();
     current_batch_metadata_.clear();
-    current_callback_ = nullptr; // 重置回调，等待下一个新批次
+    current_callback_ = nullptr;
   }
-  return true; // 表示数据已接收，但不一定立即处理
+  return true;
 }
 
 void TensorInferencer::finalizeInference() {
-  std::lock_guard<std::mutex> lock(batch_mutex_); // 保护共享数据
+  std::lock_guard<std::mutex> lock(batch_mutex_);
 
   if (!current_batch_inputs_.empty()) {
     std::cout << "[Finalize] 处理剩余 " << current_batch_inputs_.size()
               << " 个输入..." << std::endl;
-    performBatchInference(true); // 填充不足的批次
+    performBatchInference(true);
     current_batch_inputs_.clear();
     current_batch_metadata_.clear();
     current_callback_ = nullptr;
@@ -421,35 +361,25 @@ void TensorInferencer::finalizeInference() {
   }
 }
 
-// 预处理单个图像以进行批处理 (使用letterbox)
 std::vector<float>
 TensorInferencer::preprocess_single_image_for_batch(const cv::Mat &img,
                                                     BatchImageMetadata &meta) {
-  // 模型输入的目标尺寸
   const int model_input_w = target_w_;
   const int model_input_h = target_h_;
-
   cv::Mat image_to_process;
 
   if (!meta.is_real_image) {
-    // 对于虚拟/填充槽位，创建一个灰色图像 (与常见的letterbox填充一致)
-    // 这确保预处理器处理正确尺寸的Mat。
     image_to_process = cv::Mat(model_input_h, model_input_w, CV_8UC3,
                                cv::Scalar(114, 114, 114));
-    // 更新虚拟图像的元数据
-    // (原始尺寸不相关，但设置为模型尺寸以便在缩减逻辑中保持一致)
     meta.original_w = model_input_w;
     meta.original_h = model_input_h;
-    meta.scale_to_model = 1.0f; // 不需要缩放，因为它已经是目标尺寸
+    meta.scale_to_model = 1.0f;
     meta.pad_w_left = 0;
     meta.pad_h_top = 0;
   } else {
-    // meta.original_w 和 meta.original_h 应该已经在调用此函数前由 infer() 或
-    // finalizeInference() 设置
-    image_to_process = img.clone(); // 对真实图像进行操作的副本
+    image_to_process = img.clone();
   }
 
-  // Letterbox 背景
   cv::Mat processed_for_model(model_input_h, model_input_w, CV_8UC3,
                               cv::Scalar(114, 114, 114));
 
@@ -469,26 +399,20 @@ TensorInferencer::preprocess_single_image_for_batch(const cv::Mat &img,
 
     meta.pad_w_left = (model_input_w - scaled_w) / 2;
     meta.pad_h_top = (model_input_h - scaled_h) / 2;
-
-    // 将调整大小的图像放置到灰色letterbox背景上
     resized_img.copyTo(processed_for_model(
         cv::Rect(meta.pad_w_left, meta.pad_h_top, scaled_w, scaled_h)));
   } else if (!meta.is_real_image) {
-    // image_to_process 已经是 model_input_h x model_input_w 的灰色虚拟图像
     processed_for_model = image_to_process;
   }
 
   cv::Mat img_rgb;
-  cv::cvtColor(processed_for_model, img_rgb, cv::COLOR_BGR2RGB); // BGR 转 RGB
-
-  int c = 3; // 通道数
+  cv::cvtColor(processed_for_model, img_rgb, cv::COLOR_BGR2RGB);
+  int c = 3;
   cv::Mat chw_input_fp32;
-  // 归一化到 [0,1]
   img_rgb.convertTo(chw_input_fp32, CV_32FC3, 1.0 / 255.0);
 
   std::vector<float> input_data_single(static_cast<size_t>(c) * model_input_h *
                                        model_input_w);
-  // HWC 转 CHW
   for (int ch_idx = 0; ch_idx < c; ++ch_idx) {
     for (int y = 0; y < model_input_h; ++y) {
       for (int x = 0; x < model_input_w; ++x) {
@@ -520,18 +444,12 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
             << ", 是否填充: " << (pad_batch ? "是" : "否") << ")." << std::endl;
 
   std::vector<float> batched_input_data;
-  // 为完整的GPU批处理大小和模型维度预分配空间
   batched_input_data.reserve(static_cast<size_t>(ACTUAL_BATCH_SIZE_FOR_GPU) *
                              3 * target_h_ * target_w_);
-
-  // 存储用于保存注释图像的原始图像副本，因为 current_batch_inputs_ 中的 cv::Mat
-  // 可能是临时的
   std::vector<cv::Mat> original_raw_images_for_saving(
       ACTUAL_BATCH_SIZE_FOR_GPU);
+  std::vector<BatchImageMetadata> processing_metadata = current_batch_metadata_;
 
-  // 准备批处理元数据，如果需要填充，则填充元数据
-  std::vector<BatchImageMetadata> processing_metadata =
-      current_batch_metadata_; // 复制一份，以防修改
   if (pad_batch &&
       NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH < ACTUAL_BATCH_SIZE_FOR_GPU) {
     int num_to_pad =
@@ -539,44 +457,38 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     for (int k = 0; k < num_to_pad; ++k) {
       BatchImageMetadata dummy_meta;
       dummy_meta.is_real_image = false;
-      // original_w/h 等将在 preprocess_single_image_for_batch 中为虚拟图像设置
       processing_metadata.push_back(dummy_meta);
     }
   }
 
   for (int i = 0; i < ACTUAL_BATCH_SIZE_FOR_GPU; ++i) {
     cv::Mat current_raw_img_for_preprocessing;
-    if (i < NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH) { // 真实图像
+    if (i < NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH) {
       const InferenceInput &current_input_param = current_batch_inputs_[i];
       if (current_input_param.decoded_frames.empty() ||
           current_input_param.decoded_frames[0].empty()) {
         std::cerr << "[警告][PerformBatch] 在索引 " << i
                   << " 处的 batch_inputs 中的帧为空。"
                   << "将使用虚拟图像进行预处理。" << std::endl;
-        processing_metadata[i].is_real_image = false; // 明确标记为非真实
-        // preprocess_single_image_for_batch 将根据 is_real_image
-        // 处理创建虚拟图像 但我们需要一个占位符Mat来进行函数调用。
+        processing_metadata[i].is_real_image = false;
         current_raw_img_for_preprocessing =
             cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
         original_raw_images_for_saving[i] =
             current_raw_img_for_preprocessing.clone();
       } else {
-        processing_metadata[i].is_real_image = true; // 确保元数据正确
+        processing_metadata[i].is_real_image = true;
         current_raw_img_for_preprocessing =
             current_input_param.decoded_frames[0];
         original_raw_images_for_saving[i] =
-            current_input_param.decoded_frames[0].clone(); // 保存真实图像
+            current_input_param.decoded_frames[0].clone();
       }
-    } else { // GPU批处理的填充槽位
+    } else {
       processing_metadata[i].is_real_image = false;
       current_raw_img_for_preprocessing =
-          cv::Mat(target_h_, target_w_, CV_8UC3,
-                  cv::Scalar(114, 114, 114)); // 临时，将变为灰色
+          cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
       original_raw_images_for_saving[i] =
           current_raw_img_for_preprocessing.clone();
     }
-
-    // 使用 processing_metadata[i] 来确保元数据被正确更新
     std::vector<float> single_image_data = preprocess_single_image_for_batch(
         current_raw_img_for_preprocessing, processing_metadata[i]);
     batched_input_data.insert(batched_input_data.end(),
@@ -584,8 +496,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
                               single_image_data.end());
   }
 
-  // --- 设置运行时输入维度 ---
-  // 这里的批处理大小是引擎期望的，即 ACTUAL_BATCH_SIZE_FOR_GPU
   Dims inputDimsRuntime{4,
                         {ACTUAL_BATCH_SIZE_FOR_GPU, 3, target_h_, target_w_}};
   if (!context_->setBindingDimensions(inputIndex_, inputDimsRuntime)) {
@@ -612,9 +522,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // 假设输出格式为 [BATCH, ATTRIBUTES, DETECTIONS] 或 [BATCH, DETECTIONS,
-  // ATTRIBUTES] 使用 test.cpp 中的格式: [BATCH, NumAttributes,
-  // NumDetectionsPerImage]
   if (num_classes_ <= 0 || outDimsRuntime.d[0] != ACTUAL_BATCH_SIZE_FOR_GPU ||
       (outDimsRuntime.nbDims == 3 &&
        outDimsRuntime.d[1] != (4 + num_classes_))) {
@@ -628,7 +535,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   int num_detections_per_image_from_engine = 0;
   int num_attributes_from_engine = 0;
 
-  if (outDimsRuntime.nbDims == 3) { // 假设 [Batch, Attributes, Detections]
+  if (outDimsRuntime.nbDims == 3) {
     num_attributes_from_engine = outDimsRuntime.d[1];
     num_detections_per_image_from_engine = outDimsRuntime.d[2];
     if (num_attributes_from_engine != (4 + num_classes_)) {
@@ -643,9 +550,8 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // --- GPU 内存分配 ---
   if (inputDevice_)
-    cudaFree(inputDevice_); // 释放先前的分配
+    cudaFree(inputDevice_);
   if (outputDevice_)
     cudaFree(outputDevice_);
   inputDevice_ = nullptr;
@@ -653,7 +559,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
 
   size_t total_input_bytes = batched_input_data.size() * sizeof(float);
   size_t total_output_bytes = total_output_elements * sizeof(float);
-
   cudaError_t err;
   err = cudaMalloc(&inputDevice_, total_input_bytes);
   if (err != cudaSuccess) {
@@ -673,7 +578,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
 
-  // --- 执行推理 ---
   err = cudaMemcpy(inputDevice_, batched_input_data.data(), total_input_bytes,
                    cudaMemcpyHostToDevice);
   if (err != cudaSuccess) {
@@ -701,31 +605,22 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
             << " 个真实输入 (GPU批处理大小 " << ACTUAL_BATCH_SIZE_FOR_GPU
             << ")." << std::endl;
 
-  // --- 后处理每个真实图像 ---
-  std::vector<InferenceResult>
-      batch_inference_results; // 收集此批次所有真实图像的结果
-  std::vector<InferenceInput>
-      original_inputs_for_callback; // 收集此批次所有真实图像的原始输入
+  std::vector<InferenceResult> batch_inference_results;
+  std::vector<InferenceInput> original_inputs_for_callback;
 
-  for (int i = 0; i < NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH;
-       ++i) { // 只处理真实输入
+  for (int i = 0; i < NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH; ++i) {
     if (!processing_metadata[i].is_real_image) {
-      // 这不应该发生，因为我们迭代到
-      // NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH 但作为安全检查
-      std::cout << "[PerformBatch] 跳过后处理槽位 " << i
-                << "，因为它被标记为非真实 (最初是虚拟的)。" << std::endl;
       continue;
     }
     const InferenceInput &current_original_input_param =
         current_batch_inputs_[i];
     const cv::Mat &current_raw_img_for_saving =
-        original_raw_images_for_saving[i]; // 使用保存的副本
+        original_raw_images_for_saving[i];
 
     if (current_raw_img_for_saving.empty() &&
         processing_metadata[i].is_real_image) {
       std::cerr << "[警告] 批处理索引 " << i
                 << " 处的真实图像在后处理前为空。跳过。" << std::endl;
-      // 仍然为这个失败的图像添加一个结果，以便回调知道
       InferenceResult res;
       res.info = "Error: Input image was empty for GOP " +
                  std::to_string(current_original_input_param.gopIdx);
@@ -734,33 +629,24 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
       continue;
     }
 
-    // 提取该图像的输出切片
-    // host_output_batched_raw 是 [ACTUAL_BATCH_SIZE_FOR_GPU, num_attributes,
-    // num_detections_per_image] 我们需要图像 `i` 的切片
     const float *output_for_this_image_start =
         host_output_batched_raw.data() +
         static_cast<size_t>(i) * num_attributes_from_engine *
             num_detections_per_image_from_engine;
 
-    std::vector<InferenceResult>
-        single_image_results; // 存储单个图像的多个检测结果
+    std::vector<InferenceResult> single_image_results;
     process_single_output(
         current_original_input_param, output_for_this_image_start,
         num_detections_per_image_from_engine, num_attributes_from_engine,
-        current_raw_img_for_saving, // 传递原始图像用于保存
-        processing_metadata[i],     // 传递此图像的元数据
-        i,                          // 原始批处理索引 (在当前处理批次中)
-        single_image_results);      // 收集结果
+        current_raw_img_for_saving, processing_metadata[i], i,
+        single_image_results);
 
-    // 将单个图像的结果添加到批处理结果中
     batch_inference_results.insert(batch_inference_results.end(),
                                    single_image_results.begin(),
                                    single_image_results.end());
-    // 为回调添加原始输入
-    if (!single_image_results
-             .empty()) { // 只有当有结果时才添加原始输入，或者总是添加？取决于回调设计
+    if (!single_image_results.empty()) {
       original_inputs_for_callback.push_back(current_original_input_param);
-    } else { // 即使没有检测到目标，也可能需要回调
+    } else {
       InferenceResult no_detection_res;
       no_detection_res.info =
           "No target '" + current_original_input_param.object_name +
@@ -771,36 +657,29 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     }
   }
 
-  // --- 调用回调函数 ---
-  if (current_callback_ &&
-      !original_inputs_for_callback.empty()) { // 只有当有真实输入被处理时才回调
+  if (current_callback_ && !original_inputs_for_callback.empty()) {
     std::cout << "[PerformBatch] 为 " << original_inputs_for_callback.size()
               << " 个原始输入调用回调函数。" << std::endl;
-    current_callback_(batch_inference_results);
+    current_callback_(batch_inference_results, original_inputs_for_callback);
   } else if (current_callback_ && original_inputs_for_callback.empty() &&
              NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH > 0) {
-    // 如果有真实输入但没有结果（例如所有图像都处理失败），仍然回调空结果
     std::cout << "[PerformBatch] 调用回调函数，但没有有效的推理结果。"
               << std::endl;
-    current_callback_({}); // 或者传递包含错误信息的 results
-  } else if (!current_callback_) {
-    std::cerr << "[错误][PerformBatch] 回调函数未设置！" << std::endl;
+    current_callback_({}, {});
+  } else if (!current_callback_ && NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH >
+                                       0) { // Check if callback is null only if
+                                            // there were inputs to process
+    std::cerr << "[错误][PerformBatch] 回调函数未设置，但有输入需要处理！"
+              << std::endl;
   }
 }
 
-// 处理单个图像的推理输出 (在批处理上下文中)
 void TensorInferencer::process_single_output(
-    const InferenceInput &original_input_param, // 原始的单个输入参数
-    const float *host_output_for_image_raw,     // 指向该图像原始输出数据的指针
-    int num_detections_in_slice,                // 模型输出中该图像的检测数量
-    int num_attributes_per_detection,           // 每个检测的属性数量
-    const cv::Mat &raw_img_for_saving,          // 用于保存的原始图像
-    const BatchImageMetadata &image_meta,       // 该图像的元数据
-    int original_batch_idx_for_debug,           // 调试用的原始批处理索引
-    std::vector<InferenceResult> &single_image_results // 收集该图像的推理结果
-) {
-
-  // 输出是 [attributes, detections]。转置为 [detections, attributes]
+    const InferenceInput &original_input_param,
+    const float *host_output_for_image_raw, int num_detections_in_slice,
+    int num_attributes_per_detection, const cv::Mat &raw_img_for_saving,
+    const BatchImageMetadata &image_meta, int original_batch_idx_for_debug,
+    std::vector<InferenceResult> &single_image_results) {
   std::vector<float> transposed_output(
       static_cast<size_t>(num_detections_in_slice) *
       num_attributes_per_detection);
@@ -828,10 +707,7 @@ void TensorInferencer::process_single_output(
     return;
   }
   int target_class_id = it->second;
-
-  // 使用原始输入参数中的置信度阈值
   float confidence_threshold = original_input_param.confidence_thresh;
-  // float confidence_threshold = 0.01f; // 用于调试的非常低的阈值
   std::cout << "[DEBUG_SINGLE_OUTPUT] 图像 " << original_batch_idx_for_debug
             << " (GOP: " << original_input_param.gopIdx
             << "): 使用置信度阈值: " << confidence_threshold << " 用于目标 '"
@@ -841,11 +717,8 @@ void TensorInferencer::process_single_output(
   for (int i = 0; i < num_detections_in_slice; ++i) {
     const float *det_attrs = &transposed_output[static_cast<size_t>(i) *
                                                 num_attributes_per_detection];
-    // det_attrs: [cx, cy, w, h, score_cls1, score_cls2, ..., score_clsN]
-
     float max_score = 0.0f;
     int best_class_id = -1;
-    // 分数从索引 4 开始
     for (int j = 0; j < num_classes_; ++j) {
       float score = det_attrs[4 + j];
       if (score > max_score) {
@@ -854,53 +727,33 @@ void TensorInferencer::process_single_output(
       }
     }
 
-    // // 调试：打印原始检测结果
-    // if (max_score > 0.005) { // 非常低的阈值用于原始调试打印
-    //     std::cout << "[RAW_DET_SINGLE] 图像 " << original_batch_idx_for_debug
-    //     << ", 检测 " << i
-    //               << ": BestClsID=" << best_class_id
-    //               << " (名称: " << (id_to_class_name_.count(best_class_id) ?
-    //               id_to_class_name_.at(best_class_id) : "未知") << ")"
-    //               << ", MaxScore=" << std::fixed << std::setprecision(4) <<
-    //               max_score
-    //               << ", CX=" << det_attrs[0] << ", CY=" << det_attrs[1]
-    //               << ", W=" << det_attrs[2] << ", H=" << det_attrs[3] <<
-    //               std::endl;
-    // }
-
     if (best_class_id == target_class_id && max_score >= confidence_threshold) {
-      // 边界框坐标相对于模型输入尺寸 (target_w_, target_h_)
       float cx = det_attrs[0];
       float cy = det_attrs[1];
       float w = det_attrs[2];
       float h = det_attrs[3];
-
-      // 这些是在letterbox/调整大小后的模型输入空间中的坐标
       float x1_model = std::max(0.0f, cx - w / 2.0f);
       float y1_model = std::max(0.0f, cy - h / 2.0f);
       float x2_model =
           std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
       float y2_model =
           std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
-
       if (x2_model > x1_model && y2_model > y1_model) {
-        detected_objects.push_back(
-            {x1_model, y1_model, x2_model, y2_model, max_score, best_class_id,
-             original_batch_idx_for_debug, // 这个索引是它在当前GPU批次中的位置
-             image_meta.is_real_image ? "REAL" : "PAD"});
+        detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
+                                    max_score, best_class_id,
+                                    original_batch_idx_for_debug,
+                                    image_meta.is_real_image ? "REAL" : "PAD"});
       }
     }
   }
 
-  std::vector<Detection> nms_detections =
-      applyNMS(detected_objects, 0.45f); // NMS阈值
+  std::vector<Detection> nms_detections = applyNMS(detected_objects, 0.45f);
   std::cout << "[NMS_SINGLE] 图像 " << original_batch_idx_for_debug << " 对于 '"
             << original_input_param.object_name
             << "': NMS前=" << detected_objects.size()
             << ", NMS后=" << nms_detections.size() << std::endl;
 
-  if (nms_detections.empty() &&
-      image_meta.is_real_image) { // 只为真实图像记录此信息
+  if (nms_detections.empty() && image_meta.is_real_image) {
     std::cout << "[INFO_SINGLE] 图像 " << original_batch_idx_for_debug
               << ": 未找到满足条件的 '" << original_input_param.object_name
               << "' (GOP: " << original_input_param.gopIdx << ")." << std::endl;
@@ -922,10 +775,8 @@ void TensorInferencer::process_single_output(
     }
     saveAnnotatedImage(raw_img_for_saving, det, image_meta,
                        original_input_param.object_name,
-                       original_input_param.gopIdx,
-                       static_cast<int>(i)); // i 是此图像内的检测索引
+                       original_input_param.gopIdx, static_cast<int>(i));
 
-    // 为回调准备 InferenceResult
     InferenceResult res;
     std::ostringstream oss;
     oss << "GOP " << original_input_param.gopIdx << ": Detected '"
@@ -934,8 +785,7 @@ void TensorInferencer::process_single_output(
         << " with confidence " << std::fixed << std::setprecision(4)
         << det.confidence << ". Coords (model_input_space): [" << det.x1 << ","
         << det.y1 << "," << det.x2 << "," << det.y2 << "]";
-    // 可以添加转换回原始图像空间的坐标
-    // 1. 移除填充偏移 (坐标现在相对于letterbox内的缩放图像)
+
     float x1_unpadded = det.x1 - image_meta.pad_w_left;
     float y1_unpadded = det.y1 - image_meta.pad_h_top;
     float x2_unpadded = det.x2 - image_meta.pad_w_left;
@@ -957,7 +807,6 @@ void TensorInferencer::process_single_output(
       oss << ". Coords (original_image_space): [" << x1_orig << "," << y1_orig
           << "," << x2_orig << "," << y2_orig << "]";
     }
-
     res.info = oss.str();
     single_image_results.push_back(res);
   }
@@ -968,16 +817,13 @@ float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
   float y1_intersect = std::max(a.y1, b.y1);
   float x2_intersect = std::min(a.x2, b.x2);
   float y2_intersect = std::min(a.y2, b.y2);
-
   if (x2_intersect <= x1_intersect || y2_intersect <= y1_intersect)
     return 0.0f;
-
   float intersection_area =
       (x2_intersect - x1_intersect) * (y2_intersect - y1_intersect);
   float area_a = (a.x2 - a.x1) * (a.y2 - a.y1);
   float area_b = (b.x2 - b.x1) * (b.y2 - b.y1);
   float union_area = area_a + area_b - intersection_area;
-
   return union_area > 1e-6f ? intersection_area / union_area : 0.0f;
 }
 
@@ -1001,9 +847,6 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
     for (size_t j = i + 1; j < sorted_detections.size(); ++j) {
       if (suppressed[j])
         continue;
-      // NMS应该在同一图像的检测之间进行。
-      // 由于此函数现在由 process_single_output 为每个图像调用，
-      // detections 向量中的所有检测都来自同一个原始图像。
       float iou = calculateIoU(sorted_detections[i], sorted_detections[j]);
       if (iou > iou_threshold) {
         suppressed[j] = true;
@@ -1013,15 +856,12 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
   return result;
 }
 
-// 修改后的 saveAnnotatedImage 使用 BatchImageMetadata 进行letterbox坐标转换
-void TensorInferencer::saveAnnotatedImage(
-    const cv::Mat &raw_img_for_saving, // 这是原始的、未处理的图像
-    const Detection &det, // 检测坐标相对于模型输入 (例如，736x736 letterbox)
-    const BatchImageMetadata &
-        image_meta, // 包含letterbox参数 (scale_to_model, pad_w_left, pad_h_top)
-    const std::string &class_name_str, int gopIdx,
-    int detection_idx_in_image // 在此图像内的检测索引
-) {
+void TensorInferencer::saveAnnotatedImage(const cv::Mat &raw_img_for_saving,
+                                          const Detection &det,
+                                          const BatchImageMetadata &image_meta,
+                                          const std::string &class_name_str,
+                                          int gopIdx,
+                                          int detection_idx_in_image) {
   if (!image_meta.is_real_image || raw_img_for_saving.empty()) {
     std::cerr << "[警告][SAVE] 尝试为非真实或空图像保存注释。GOP: " << gopIdx
               << ", 检测状态: " << det.status_info << ". 跳过。" << std::endl;
@@ -1029,18 +869,11 @@ void TensorInferencer::saveAnnotatedImage(
   }
 
   cv::Mat img_to_save = raw_img_for_saving.clone();
-
-  // det.x1, det.y1, det.x2, det.y2 相对于letterbox模型输入 (target_w_ x
-  // target_h_) 我们需要将它们映射回原始图像坐标。
-
-  // 1. 移除填充偏移 (坐标现在相对于letterbox内的缩放图像)
   float x1_unpadded = det.x1 - image_meta.pad_w_left;
   float y1_unpadded = det.y1 - image_meta.pad_h_top;
   float x2_unpadded = det.x2 - image_meta.pad_w_left;
   float y2_unpadded = det.y2 - image_meta.pad_h_top;
 
-  // 2. 使用 scale_to_model 的倒数缩放回原始图像维度
-  // 确保 scale_to_model 不为零以防止除以零
   if (image_meta.scale_to_model <= 1e-6f) {
     std::cerr << "[警告][SAVE] GOP " << gopIdx << " 的 scale_to_model ("
               << image_meta.scale_to_model << ") 无效。跳过保存。" << std::endl;
@@ -1056,7 +889,6 @@ void TensorInferencer::saveAnnotatedImage(
   int y2_orig =
       static_cast<int>(std::round(y2_unpadded / image_meta.scale_to_model));
 
-  // 3. 裁剪到原始图像边界
   x1_orig = std::max(0, std::min(x1_orig, image_meta.original_w - 1));
   y1_orig = std::max(0, std::min(y1_orig, image_meta.original_h - 1));
   x2_orig = std::max(0, std::min(x2_orig, image_meta.original_w - 1));
@@ -1078,28 +910,25 @@ void TensorInferencer::saveAnnotatedImage(
 
   cv::rectangle(img_to_save, cv::Point(x1_orig, y1_orig),
                 cv::Point(x2_orig, y2_orig), cv::Scalar(0, 255, 0), 2);
-
   std::ostringstream label;
   label << class_name_str << " " << std::fixed << std::setprecision(2)
         << det.confidence;
   int baseline = 0;
   cv::Size textSize =
       cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.7, 1, &baseline);
-  baseline += 1; // cv::getTextSize behavior
+  baseline += 1;
 
-  cv::Point textOrg(x1_orig, y1_orig - 5); // 默认在框上方
-  // 确保文本在图像内
-  if (textOrg.y - textSize.height < 0) {                // 如果文本超出图像顶部
-    textOrg.y = y1_orig + textSize.height + 5;          // 移动到框左上角下方
-    if (textOrg.y > image_meta.original_h - baseline) { // 如果超出图像底部
-      textOrg.y = image_meta.original_h - baseline - 2; // 调整
+  cv::Point textOrg(x1_orig, y1_orig - 5);
+  if (textOrg.y - textSize.height < 0) {
+    textOrg.y = y1_orig + textSize.height + 5;
+    if (textOrg.y > image_meta.original_h - baseline) {
+      textOrg.y = image_meta.original_h - baseline - 2;
     }
   }
-  if (textOrg.x + textSize.width >
-      image_meta.original_w) { // 如果文本超出右边缘
+  if (textOrg.x + textSize.width > image_meta.original_w) {
     textOrg.x = image_meta.original_w - textSize.width - 2;
   }
-  textOrg.x = std::max(0, textOrg.x); // 确保文本在图像边界内开始
+  textOrg.x = std::max(0, textOrg.x);
 
   cv::rectangle(
       img_to_save,
@@ -1112,9 +941,8 @@ void TensorInferencer::saveAnnotatedImage(
   std::ostringstream filename_oss;
   filename_oss << image_output_path_ << "/gop" << std::setw(4)
                << std::setfill('0') << gopIdx << "_obj" << std::setw(2)
-               << std::setfill('0')
-               << detection_idx_in_image // 使用图像内检测索引
-               << "_" << class_name_str << "_conf"
+               << std::setfill('0') << detection_idx_in_image << "_"
+               << class_name_str << "_conf"
                << static_cast<int>(det.confidence * 100) << ".jpg";
 
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
