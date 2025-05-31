@@ -13,9 +13,9 @@
 #include <opencv2/imgproc/imgproc.hpp>
 
 // OpenCV CUDA Headers
-#include <opencv2/cudaarithm.hpp> // For convertTo, split, setTo
-#include <opencv2/cudaimgproc.hpp>
-#include <opencv2/cudawarping.hpp> // For resize
+#include <opencv2/cudaarithm.hpp>  // For convertTo, split, setTo
+#include <opencv2/cudaimgproc.hpp> // For cvtColor, resize (from cudawarping)
+#include <opencv2/cudawarping.hpp> // For resize (explicitly if needed, often included by cudaimgproc)
 
 using namespace nvinfer1;
 
@@ -53,13 +53,24 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
 TensorInferencer::TensorInferencer(int video_height, int video_width,
                                    std::string object_name, int interval,
                                    float confidence, InferenceCallback callback)
-    : object_name_(object_name), interval_(interval), confidence_(confidence),
-      runtime_(nullptr), engine_(nullptr), context_(nullptr),
-      inputDevice_(nullptr), outputDevice_(nullptr), inputIndex_(-1),
-      outputIndex_(-1), num_classes_(0), BATCH_SIZE_(1),
+    : // Initializer list order matches declaration order in .hpp
+      object_name_(object_name), interval_(interval), confidence_(confidence),
+      BATCH_SIZE_(1), // Default, will be updated from env var
+      target_w_(0),   // Will be initialized based on video_width/engine
+      target_h_(0),   // Will be initialized based on video_height/engine
+      // engine_path_ and image_output_path_ initialized after env var checks
+      runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
+      outputIndex_(-1),
+      // bindings_ automatically sized later
+      inputDevice_(nullptr), outputDevice_(nullptr),
+      // class_name_to_id_, id_to_class_name_ default-initialized
+      num_classes_(0),
+      // current_batch_raw_frames_, current_batch_metadata_ default-initialized
       current_callback_(callback),
-      constant_metadata_initialized_(
-          false) { // cached_geometry_ will be default initialized
+      // batch_mutex_ default-initialized
+      constant_metadata_initialized_(false)
+// cached_geometry_ default-initialized
+{
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -87,7 +98,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   } else {
     std::cerr << "[警告] 未设置 BATCH_SIZE 环境变量。将使用默认值 1。"
               << std::endl;
-    BATCH_SIZE_ = 1;
+    // BATCH_SIZE_ remains 1 (its default initializer)
   }
   std::cout << "[初始化] 使用 BATCH_SIZE (单个帧): " << BATCH_SIZE_
             << std::endl;
@@ -107,14 +118,11 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
       std::exit(EXIT_FAILURE);
     }
   }
-  engine_path_ = env_engine_path;
+  engine_path_ = env_engine_path; // Initialize member variable
   std::cout << "[初始化] 使用引擎文件: " << engine_path_ << std::endl;
 
-  int initial_target_w = roundToNearestMultiple(video_width, 32);
-  int initial_target_h = roundToNearestMultiple(video_height, 32);
-
-  target_w_ = initial_target_w;
-  target_h_ = initial_target_h;
+  target_w_ = roundToNearestMultiple(video_width, 32);
+  target_h_ = roundToNearestMultiple(video_height, 32);
 
   std::cout << "[初始化] 初始计算的目标尺寸 (四舍五入到32的倍数): " << target_w_
             << "x" << target_h_ << std::endl;
@@ -131,7 +139,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
     std::cerr << "[错误] 未设置环境变量 YOLO_IMAGE_PATH。" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  image_output_path_ = output_path_env;
+  image_output_path_ = output_path_env; // Initialize member variable
 
   auto engineData = readEngineFile(engine_path_);
   if (engineData.empty()) {
@@ -192,9 +200,10 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
             << std::endl;
 
   Dims reportedInputDims = engine_->getBindingDimensions(inputIndex_);
-  if (reportedInputDims.nbDims == 4) {
+  if (reportedInputDims.nbDims == 4) { // NCHW
     bool useEngineDims = true;
-    if (reportedInputDims.d[2] <= 0 || reportedInputDims.d[3] <= 0) {
+    // d[0] is batch, d[1] is channels
+    if (reportedInputDims.d[2] <= 0 || reportedInputDims.d[3] <= 0) { // H, W
       useEngineDims = false;
     }
     if (useEngineDims) {
@@ -317,13 +326,13 @@ bool TensorInferencer::infer(const InferenceInput &input) {
             static_cast<float>(target_h_) / cached_geometry_.original_h;
         cached_geometry_.scale_to_model = std::min(scale_x, scale_y);
 
-        int scaled_w = static_cast<int>(std::round(
+        int scaled_w_for_cache = static_cast<int>(std::round(
             cached_geometry_.original_w * cached_geometry_.scale_to_model));
-        int scaled_h = static_cast<int>(std::round(
+        int scaled_h_for_cache = static_cast<int>(std::round(
             cached_geometry_.original_h * cached_geometry_.scale_to_model));
 
-        cached_geometry_.pad_w_left = (target_w_ - scaled_w) / 2;
-        cached_geometry_.pad_h_top = (target_h_ - scaled_h) / 2;
+        cached_geometry_.pad_w_left = (target_w_ - scaled_w_for_cache) / 2;
+        cached_geometry_.pad_h_top = (target_h_ - scaled_h_for_cache) / 2;
         constant_metadata_initialized_ = true;
       } else {
         std::cerr << "[警告][Infer] "
@@ -342,11 +351,13 @@ bool TensorInferencer::infer(const InferenceInput &input) {
       meta.scale_to_model = cached_geometry_.scale_to_model;
       meta.pad_w_left = cached_geometry_.pad_w_left;
       meta.pad_h_top = cached_geometry_.pad_h_top;
-    } else {
+    } else { // Recalculate if not using cached or first frame was bad
       meta.original_w = current_frame_mat.cols;
       meta.original_h = current_frame_mat.rows;
-      meta.scale_to_model =
-          0.0f; // Will be recalculated in preprocess if needed
+      // scale_to_model, pad_w_left, pad_h_top will be calculated in
+      // preprocess_single_image_for_batch if meta.scale_to_model is 0.0f (which
+      // it is by default if not set from cache)
+      meta.scale_to_model = 0.0f;
       meta.pad_w_left = 0;
       meta.pad_h_top = 0;
     }
@@ -359,7 +370,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     current_batch_metadata_.push_back(meta);
 
     if (current_batch_raw_frames_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
-      performBatchInference(false);
+      performBatchInference(false); // Process full batch
       current_batch_raw_frames_.clear();
       current_batch_metadata_.clear();
     }
@@ -373,7 +384,7 @@ void TensorInferencer::finalizeInference() {
   if (!current_batch_raw_frames_.empty()) {
     std::cout << "[Finalize] 处理剩余 " << current_batch_raw_frames_.size()
               << " 个帧..." << std::endl;
-    performBatchInference(true);
+    performBatchInference(true); // Pad the last batch if necessary
     current_batch_raw_frames_.clear();
     current_batch_metadata_.clear();
   } else {
@@ -381,11 +392,10 @@ void TensorInferencer::finalizeInference() {
   }
 }
 
-// Modified preprocess_single_image_for_batch to perform operations on GPU
-// and write CHW planar data directly into the provided GpuMat slice.
 void TensorInferencer::preprocess_single_image_for_batch(
-    const cv::Mat &cpu_img, // Input CPU image (can be empty for dummy)
-    BatchImageMetadata &meta, int model_input_w, int model_input_h,
+    const cv::Mat &cpu_img, BatchImageMetadata &meta,
+    int model_input_w, // target_w_
+    int model_input_h, // target_h_
     cv::cuda::GpuMat
         &chw_planar_output_gpu_buffer_slice // Wraps a slice of inputDevice_
 ) {
@@ -393,118 +403,98 @@ void TensorInferencer::preprocess_single_image_for_batch(
       gpu_processed_for_model; // This will be the letterboxed image on GPU
 
   if (!meta.is_real_image) {
-    // For dummy images, create a letterbox-sized image filled with 114 directly
-    // on GPU
     gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
     gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114)); // BGR scalar
   } else {
     if (cpu_img.empty()) {
-      std::cerr << "[错误][PreProcGPU] Real image (Frame: "
+      std::cerr << "[警告][PreProcGPU] Real image (Frame: "
                 << meta.global_frame_index
                 << ") is empty. Using letterbox fill for this slot."
                 << std::endl;
       gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
       gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114));
-    } else {
-      cv::cuda::GpuMat gpu_original_img;
-      gpu_original_img.upload(cpu_img);
+      goto convert_to_rgb_and_normalize;
+    }
 
-      // Calculate scaling and padding (respecting cached/pre-calculated values
-      // if available) This logic is similar to the original CPU version but
-      // prepares for GPU ops.
-      if (meta.scale_to_model == 0.0f && meta.original_w > 0 &&
-          meta.original_h > 0) {
-        float scale_x = static_cast<float>(model_input_w) / meta.original_w;
-        float scale_y = static_cast<float>(model_input_h) / meta.original_h;
-        meta.scale_to_model = std::min(scale_x, scale_y);
+    cv::cuda::GpuMat gpu_original_img;
+    gpu_original_img.upload(cpu_img);
 
-        int temp_scaled_w =
-            static_cast<int>(std::round(meta.original_w * meta.scale_to_model));
-        int temp_scaled_h =
-            static_cast<int>(std::round(meta.original_h * meta.scale_to_model));
+    if (meta.original_w <= 0 || meta.original_h <= 0) {
+      std::cerr << "[警告][PreProcGPU] Real image (Frame: "
+                << meta.global_frame_index
+                << ") has invalid original dimensions (" << meta.original_w
+                << "x" << meta.original_h << "). Using letterbox fill."
+                << std::endl;
+      gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
+      gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114));
+      goto convert_to_rgb_and_normalize;
+    }
 
-        meta.pad_w_left = (model_input_w - temp_scaled_w) / 2;
-        meta.pad_h_top = (model_input_h - temp_scaled_h) / 2;
-      } else if (meta.original_w <= 0 || meta.original_h <= 0) {
-        std::cerr << "[警告][PreProcGPU] Real image (Frame: "
-                  << meta.global_frame_index
-                  << ") has invalid original dimensions (" << meta.original_w
-                  << "x" << meta.original_h << "). Using letterbox fill."
-                  << std::endl;
-        gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
-        gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114)); // Fallback
-        // Skip to color conversion and normalization of the dummy image
-        goto convert_and_normalize; // Not ideal, but an easy way to jump for
-                                    // this specific error
-      }
+    if (meta.scale_to_model == 0.0f) { // Calculate if not provided by cache
+      float scale_x = static_cast<float>(model_input_w) / meta.original_w;
+      float scale_y = static_cast<float>(model_input_h) / meta.original_h;
+      meta.scale_to_model = std::min(scale_x, scale_y);
 
-      int scaled_w =
+      int temp_scaled_w =
           static_cast<int>(std::round(meta.original_w * meta.scale_to_model));
-      int scaled_h =
+      int temp_scaled_h =
           static_cast<int>(std::round(meta.original_h * meta.scale_to_model));
 
-      // Ensure scaled dimensions are valid for ROI
-      if (scaled_w <= 0 || scaled_h <= 0 || meta.pad_w_left < 0 ||
-          meta.pad_h_top < 0 || meta.pad_w_left + scaled_w > model_input_w ||
-          meta.pad_h_top + scaled_h > model_input_h) {
-        std::cerr << "[警告][PreProcGPU] Invalid scaling or padding calculated "
-                     "for Frame "
-                  << meta.global_frame_index << ". Scaled: " << scaled_w << "x"
-                  << scaled_h << ", PadL: " << meta.pad_w_left
-                  << ", PadT: " << meta.pad_h_top << ". Using letterbox fill."
-                  << std::endl;
-        gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
-        gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114));
-        goto convert_and_normalize;
-      }
-
-      // Create a canvas for letterboxing
-      cv::cuda::GpuMat gpu_letterbox_canvas(model_input_h, model_input_w,
-                                            CV_8UC3, cv::Scalar(114, 114, 114));
-
-      cv::cuda::GpuMat gpu_resized_img;
-      cv::cuda::resize(gpu_original_img, gpu_resized_img,
-                       cv::Size(scaled_w, scaled_h), 0, 0, cv::INTER_LINEAR);
-
-      // Copy resized image to the padded region on the canvas
-      gpu_resized_img.copyTo(gpu_letterbox_canvas(
-          cv::Rect(meta.pad_w_left, meta.pad_h_top, scaled_w, scaled_h)));
-      gpu_processed_for_model = gpu_letterbox_canvas;
+      meta.pad_w_left = (model_input_w - temp_scaled_w) / 2;
+      meta.pad_h_top = (model_input_h - temp_scaled_h) / 2;
     }
+
+    int scaled_w =
+        static_cast<int>(std::round(meta.original_w * meta.scale_to_model));
+    int scaled_h =
+        static_cast<int>(std::round(meta.original_h * meta.scale_to_model));
+
+    if (scaled_w <= 0 || scaled_h <= 0 || meta.pad_w_left < 0 ||
+        meta.pad_h_top < 0 || meta.pad_w_left + scaled_w > model_input_w ||
+        meta.pad_h_top + scaled_h > model_input_h) {
+      std::cerr << "[警告][PreProcGPU] Invalid scaling or padding calculated "
+                   "for Frame "
+                << meta.global_frame_index << ". Orig: " << meta.original_w
+                << "x" << meta.original_h << ", Scaled: " << scaled_w << "x"
+                << scaled_h << ", Scale: " << meta.scale_to_model
+                << ", PadL: " << meta.pad_w_left << ", PadT: " << meta.pad_h_top
+                << ". Model In: " << model_input_w << "x" << model_input_h
+                << ". Using letterbox fill." << std::endl;
+      gpu_processed_for_model.create(model_input_h, model_input_w, CV_8UC3);
+      gpu_processed_for_model.setTo(cv::Scalar(114, 114, 114));
+      goto convert_to_rgb_and_normalize;
+    }
+
+    cv::cuda::GpuMat gpu_letterbox_canvas(model_input_h, model_input_w, CV_8UC3,
+                                          cv::Scalar(114, 114, 114));
+    cv::cuda::GpuMat gpu_resized_img;
+    cv::cuda::resize(gpu_original_img, gpu_resized_img,
+                     cv::Size(scaled_w, scaled_h), 0, 0, cv::INTER_LINEAR);
+    gpu_resized_img.copyTo(gpu_letterbox_canvas(
+        cv::Rect(meta.pad_w_left, meta.pad_h_top, scaled_w, scaled_h)));
+    gpu_processed_for_model = gpu_letterbox_canvas;
   }
 
-convert_and_normalize: // Label for goto, used in error cases above
-
-  // Color Conversion: BGR to RGB
+convert_to_rgb_and_normalize:
   cv::cuda::GpuMat gpu_rgb;
   cv::cuda::cvtColor(gpu_processed_for_model, gpu_rgb, cv::COLOR_BGR2RGB);
 
-  // Convert to Float32 and Normalize (0-1 range)
-  // Output is still HWC format here, but CV_32FC3
-  cv::cuda::GpuMat gpu_float_hwc;
+  cv::cuda::GpuMat gpu_float_hwc; // HWC, CV_32FC3
   gpu_rgb.convertTo(gpu_float_hwc, CV_32FC3, 1.0 / 255.0);
 
-  // HWC to CHW planar conversion
   std::vector<cv::cuda::GpuMat> gpu_planes;
-  cv::cuda::split(gpu_float_hwc,
-                  gpu_planes); // gpu_planes[0]=R, gpu_planes[1]=G,
-                               // gpu_planes[2]=B (since input was RGB)
+  cv::cuda::split(gpu_float_hwc, gpu_planes);
 
-  // chw_planar_output_gpu_buffer_slice is expected to be 1 row, C*H*W columns,
-  // CV_32F
   int plane_size_elements = model_input_h * model_input_w;
-
-  // Copy R plane
+  // chw_planar_output_gpu_buffer_slice is 1 row, C*H*W columns, CV_32F
   gpu_planes[0]
       .reshape(1, plane_size_elements)
       .copyTo(
           chw_planar_output_gpu_buffer_slice.colRange(0, plane_size_elements));
-  // Copy G plane
   gpu_planes[1]
       .reshape(1, plane_size_elements)
       .copyTo(chw_planar_output_gpu_buffer_slice.colRange(
           plane_size_elements, 2 * plane_size_elements));
-  // Copy B plane
   gpu_planes[2]
       .reshape(1, plane_size_elements)
       .copyTo(chw_planar_output_gpu_buffer_slice.colRange(
@@ -512,13 +502,26 @@ convert_and_normalize: // Label for goto, used in error cases above
 }
 
 void TensorInferencer::performBatchInference(bool pad_batch) {
-  if (current_batch_raw_frames_.empty()) {
+  if (current_batch_raw_frames_.empty() &&
+      !pad_batch) { // If no frames and not finalizing, nothing to do
+    return;
+  }
+  if (current_batch_raw_frames_.empty() && pad_batch &&
+      BATCH_SIZE_ == static_cast<int>(current_batch_raw_frames_.size())) {
+    // This case means current_batch_raw_frames_ is empty and it was already a
+    // full batch, so nothing to pad or process. Or, more simply, if
+    // current_batch_raw_frames_ is empty, there's nothing, even if pad_batch is
+    // true.
     return;
   }
 
   const int ACTUAL_BATCH_SIZE_FOR_GPU =
       pad_batch ? BATCH_SIZE_
                 : static_cast<int>(current_batch_raw_frames_.size());
+
+  if (ACTUAL_BATCH_SIZE_FOR_GPU == 0)
+    return; // Nothing to process
+
   const int NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH =
       static_cast<int>(current_batch_raw_frames_.size());
 
@@ -532,26 +535,22 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     for (int k = 0; k < num_to_pad; ++k) {
       BatchImageMetadata dummy_meta;
       dummy_meta.is_real_image = false;
-      // For dummy images, original_w/h can be set to model input size,
-      // as they won't be used for scaling calculations in preprocess for dummy.
       dummy_meta.original_w = target_w_;
       dummy_meta.original_h = target_h_;
-      dummy_meta.scale_to_model = 1.0f; // Not strictly needed for dummy
-      dummy_meta.pad_w_left = 0;        // Not strictly needed for dummy
-      dummy_meta.pad_h_top = 0;         // Not strictly needed for dummy
+      dummy_meta.scale_to_model = 1.0f;
+      dummy_meta.pad_w_left = 0;
+      dummy_meta.pad_h_top = 0;
       dummy_meta.global_frame_index = -1;
-      // No need for original_image_for_callback for dummy images in this GPU
-      // path as preprocess_single_image_for_batch will create a dummy GpuMat.
-      // However, if post-processing still relies on it for some reason (it
-      // shouldn't for dummy), a dummy cv::Mat could be added. For now, assume
-      // not needed for dummy in GPU preprocess.
-      // dummy_meta.original_image_for_callback = cv::Mat(target_h_, target_w_,
-      // CV_8UC3, cv::Scalar(114, 114, 114));
+      // original_image_for_callback for dummy is not strictly needed for GPU
+      // preprocess but post-processing might use it for logging if a dummy
+      // detection occurs. For consistency, we can provide one, though
+      // preprocess_single_image_for_batch ignores it for !is_real_image.
+      dummy_meta.original_image_for_callback =
+          cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
       processing_metadata_for_batch.push_back(dummy_meta);
     }
   }
 
-  // Set binding dimensions for the context based on ACTUAL_BATCH_SIZE_FOR_GPU
   Dims inputDimsRuntime{4,
                         {ACTUAL_BATCH_SIZE_FOR_GPU, 3, target_h_, target_w_}};
   if (!context_->setBindingDimensions(inputIndex_, inputDimsRuntime)) {
@@ -563,14 +562,13 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // Verify output dimensions (after setting input dimensions)
   Dims outDimsRuntime = context_->getBindingDimensions(outputIndex_);
   size_t total_output_elements = 1;
-  bool valid_output_dims = outDimsRuntime.nbDims > 0; // Basic check
+  bool valid_output_dims = outDimsRuntime.nbDims > 0;
   for (int k = 0; k < outDimsRuntime.nbDims; ++k) {
     if (outDimsRuntime.d[k] <= 0) {
-      std::cerr << "[错误] 批处理的运行时输出维度无效: " << outDimsRuntime.d[k]
-                << " at index " << k << std::endl;
+      std::cerr << "[错误] 批处理的运行时输出维度 " << k
+                << " 无效: " << outDimsRuntime.d[k] << std::endl;
       valid_output_dims = false;
       break;
     }
@@ -581,66 +579,37 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // Check output compatibility (e.g., number of classes)
-  // This logic might need adjustment based on your exact model output structure
-  if (num_classes_ <= 0 || outDimsRuntime.d[0] != ACTUAL_BATCH_SIZE_FOR_GPU ||
-      (outDimsRuntime.nbDims == 3 &&
-       outDimsRuntime.d[1] !=
-           (4 + num_classes_))) { // Example for YOLO-like output
-    std::cerr << "[错误] 批处理推理: 运行时输出属性/批处理不匹配。输出维度: ";
-    for (int k = 0; k < outDimsRuntime.nbDims; ++k)
-      std::cerr << outDimsRuntime.d[k] << " ";
-    std::cerr << "期望批处理: " << ACTUAL_BATCH_SIZE_FOR_GPU
-              << ", 期望属性 (4+num_classes): " << (4 + num_classes_)
-              << std::endl;
-    // return; // Commenting out to see if it runs, but this is a critical check
-  }
-  int num_detections_per_image_from_engine = 0;
+  // Assuming output tensor is [batch, attributes, detections_per_image]
+  // This matches the transposition logic in process_single_output
   int num_attributes_from_engine = 0;
+  int num_detections_per_image_from_engine = 0;
 
   if (outDimsRuntime.nbDims ==
-      3) { // Common for [batch, num_attributes, num_detections_boxes]
-    num_attributes_from_engine =
-        outDimsRuntime.d[1]; // Or d[2] depending on layout
-    num_detections_per_image_from_engine = outDimsRuntime.d[2]; // Or d[1]
-    if (num_attributes_from_engine !=
-        (4 + num_classes_)) { // Verify this check matches your model's [batch,
-                              // attributes, detections] or [batch, detections,
-                              // attributes]
-      std::cerr
-          << "[警告] 批处理输出维度1/2 (属性) " << num_attributes_from_engine
-          << " 与期望的 " << (4 + num_classes_)
-          << " 不匹配. The order might be [batch, detections, attributes]."
-          << std::endl;
-      // Try swapping if it's [batch, detections, attributes]
-      // This is a common source of error, ensure your model output format is
-      // correctly interpreted. For YOLO traditionally it's [batch,
-      // num_detections, 4_coords+conf+num_classes] So d[1] should be
-      // num_detections, d[2] should be attributes Let's assume engine output is
-      // [batch, num_detections, num_attributes] based on typical TRT examples
-      // for YOLO If outputIndex_ is for "output0" which is often [batch_size,
-      // num_boxes, num_classes+4+1] Let's assume d[0] = batch, d[1]=num_boxes,
-      // d[2]=num_attributes
-      num_detections_per_image_from_engine = outDimsRuntime.d[1];
-      num_attributes_from_engine = outDimsRuntime.d[2];
-      if (num_attributes_from_engine != (4 + num_classes_)) {
-        std::cerr << "[错误] Re-checked: 批处理输出维度2 (属性) "
-                  << num_attributes_from_engine << " 与期望的 "
-                  << (4 + num_classes_) << " 不匹配" << std::endl;
-        return;
-      }
+      3) { // e.g. [batch, attributes, detections_count]
+    if (outDimsRuntime.d[0] != ACTUAL_BATCH_SIZE_FOR_GPU) {
+      std::cerr << "[错误] 批处理推理: 运行时输出批处理大小不匹配。期望 "
+                << ACTUAL_BATCH_SIZE_FOR_GPU << ", 得到 " << outDimsRuntime.d[0]
+                << std::endl;
+      return;
     }
-  } else { // Add more checks if your model output is different, e.g. [batch,
-           // num_coords + num_classes, num_detections]
+    num_attributes_from_engine = outDimsRuntime.d[1];
+    num_detections_per_image_from_engine = outDimsRuntime.d[2];
+
+    if (num_attributes_from_engine != (4 + num_classes_)) {
+      std::cerr << "[错误] 批处理输出维度1 (属性) "
+                << num_attributes_from_engine << " 与期望的 "
+                << (4 + num_classes_) << " (4 coords + num_classes) 不匹配"
+                << std::endl;
+      return;
+    }
+  } else {
     std::cerr << "[错误] 批处理推理的输出维度意外。得到 "
               << outDimsRuntime.nbDims
-              << "D。期望3D [batch, detections, attributes] or similar."
+              << "D。期望3D [batch, attributes, detections_count]."
               << std::endl;
     return;
   }
 
-  // Allocate GPU memory for input and output
-  // Free previously allocated memory if any (safer for dynamic batch sizes)
   if (inputDevice_)
     cudaFree(inputDevice_);
   inputDevice_ = nullptr;
@@ -651,61 +620,47 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   size_t single_image_elements = static_cast<size_t>(3) * target_h_ * target_w_;
   size_t total_input_bytes = static_cast<size_t>(ACTUAL_BATCH_SIZE_FOR_GPU) *
                              single_image_elements * sizeof(float);
-  size_t total_output_bytes =
-      total_output_elements *
-      sizeof(float); // total_output_elements already calculated
+  size_t total_output_bytes = total_output_elements * sizeof(float);
 
   cudaError_t err;
   err = cudaMalloc(&inputDevice_, total_input_bytes);
   if (err != cudaSuccess) {
-    std::cerr << "[错误] 批处理输入的 CudaMalloc 失败: "
-              << cudaGetErrorString(err) << std::endl;
+    std::cerr << "[错误] 批处理输入的 CudaMalloc 失败 (" << total_input_bytes
+              << " bytes): " << cudaGetErrorString(err) << std::endl;
     return;
   }
   err = cudaMalloc(&outputDevice_, total_output_bytes);
   if (err != cudaSuccess) {
-    std::cerr << "[错误] 批处理输出的 CudaMalloc 失败: "
-              << cudaGetErrorString(err) << std::endl;
+    std::cerr << "[错误] 批处理输出的 CudaMalloc 失败 (" << total_output_bytes
+              << " bytes): " << cudaGetErrorString(err) << std::endl;
     cudaFree(inputDevice_);
     inputDevice_ = nullptr;
     return;
   }
 
-  // Preprocess images and fill inputDevice_ directly on GPU
   for (int i = 0; i < ACTUAL_BATCH_SIZE_FOR_GPU; ++i) {
-    cv::Mat current_raw_img_for_preprocessing_cpu;
-    if (i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH) {
-      current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
-    } else {
-      // For dummy padding images, cpu_img can be empty.
-      // preprocess_single_image_for_batch handles dummy image creation on GPU.
-      // processing_metadata_for_batch[i] should have is_real_image = false
+    cv::Mat
+        current_raw_img_for_preprocessing_cpu; // Can be empty for dummy images
+    if (processing_metadata_for_batch[i].is_real_image) {
+      current_raw_img_for_preprocessing_cpu =
+          current_batch_raw_frames_[i]; // Index carefully
     }
 
-    // Create a GpuMat wrapper for the slice of inputDevice_ for the current
-    // image
     float *current_input_slice_ptr =
         reinterpret_cast<float *>(inputDevice_) + i * single_image_elements;
     cv::cuda::GpuMat chw_output_slice_gpu_wrapper(
         1, static_cast<int>(single_image_elements), CV_32F,
         current_input_slice_ptr);
 
-    preprocess_single_image_for_batch(current_raw_img_for_preprocessing_cpu,
-                                      processing_metadata_for_batch[i],
-                                      target_w_, // model input width
-                                      target_h_, // model input height
-                                      chw_output_slice_gpu_wrapper);
+    preprocess_single_image_for_batch(
+        current_raw_img_for_preprocessing_cpu, processing_metadata_for_batch[i],
+        target_w_, target_h_, chw_output_slice_gpu_wrapper);
   }
 
-  // Set TRT bindings
   bindings_[inputIndex_] = inputDevice_;
   bindings_[outputIndex_] = outputDevice_;
 
-  // No HostToDevice cudaMemcpy needed for inputDevice_ as it's already filled
-  // on GPU
-
-  if (!context_->enqueueV2(bindings_.data(), 0,
-                           nullptr)) { // Using default stream 0
+  if (!context_->enqueueV2(bindings_.data(), 0, nullptr)) {
     std::cerr << "[错误] 批处理 TensorRT enqueueV2 失败。" << std::endl;
     return;
   }
@@ -719,18 +674,12 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  // Post-processing (same as before)
   std::vector<InferenceResult> batch_inference_results_for_callback;
-  for (int i = 0; i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH;
-       ++i) { // Only process real frames
+  for (int i = 0; i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH; ++i) {
     const BatchImageMetadata &frame_meta = processing_metadata_for_batch[i];
 
-    if (!frame_meta.is_real_image) { // Should not happen if loop is up to
-                                     // NUM_REAL_FRAMES...
-      std::cerr << "[警告][PerformBatch] Attempting to post-process a non-real "
-                   "frame at batch index "
-                << i << ". Skipping." << std::endl;
-      continue;
+    if (!frame_meta.is_real_image) {
+      continue; // Should not happen due to loop bounds, but as a safeguard
     }
     if (frame_meta.original_image_for_callback.empty()) {
       std::cerr << "[警告][PerformBatch] Real frame (Frame: "
@@ -744,21 +693,15 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
       continue;
     }
 
-    // The start of output for this image in the batched raw output
-    // Ensure your understanding of num_attributes_from_engine and
-    // num_detections_per_image_from_engine matches the actual layout [batch,
-    // attributes, detections] or [batch, detections, attributes]
     const float *output_for_this_image_start =
         host_output_batched_raw.data() +
         static_cast<size_t>(i) * num_attributes_from_engine *
             num_detections_per_image_from_engine;
 
     std::vector<InferenceResult> single_frame_results;
-    process_single_output(
-        frame_meta, output_for_this_image_start,
-        num_detections_per_image_from_engine, // Pass the correct dimension
-        num_attributes_from_engine,           // Pass the correct dimension
-        i, single_frame_results);
+    process_single_output(frame_meta, output_for_this_image_start,
+                          num_detections_per_image_from_engine,
+                          num_attributes_from_engine, i, single_frame_results);
 
     batch_inference_results_for_callback.insert(
         batch_inference_results_for_callback.end(),
@@ -774,29 +717,19 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 }
 
-// process_single_output and NMS functions remain the same
-// ... (rest of the file: process_single_output, calculateIoU, applyNMS,
-// saveAnnotatedImage) Ensure these functions are present in your actual file.
-// I'm omitting them here for brevity as they were not the primary focus of the
-// GPU pre-processing change. Make sure the includes for these are correct.
-
-// ... (Make sure the definitions for process_single_output, calculateIoU,
-// applyNMS, saveAnnotatedImage are included after this point)
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
-    const float *host_output_for_image_raw, int num_detections_in_slice,
-    int num_attributes_per_detection, int original_batch_idx_for_debug,
+    const float *host_output_for_image_raw, // Points to start of this image's
+                                            // output data
+    int num_detections_in_slice,      // Number of detections for this image
+    int num_attributes_per_detection, // Number of attributes per detection
+                                      // (e.g., x,y,w,h,c0..cN)
+    int original_batch_idx_for_debug,
     std::vector<InferenceResult> &frame_results) {
 
-  // This transposition logic depends on the output format of your TensorRT
-  // engine. If engine output is already [detections, attributes] per image,
-  // this might not be needed or might need to be [attributes, detections] ->
-  // [detections, attributes]. Original code had:
-  // host_output_for_image_raw[attr_idx * num_detections_in_slice + det_idx]
-  // This implies the raw TRT output buffer for one image is planar by
-  // attribute. E.g., [all_cx, all_cy, all_w, all_h, all_cls0_score, ...,
-  // all_clsN_score] We need to convert it to a list of detections, where each
-  // detection has its attributes together.
+  // Transposition from [attributes, detections] to [detections, attributes]
+  // This assumes host_output_for_image_raw is attribute-major for the current
+  // image.
   std::vector<float> transposed_output(
       static_cast<size_t>(num_detections_in_slice) *
       num_attributes_per_detection);
@@ -806,18 +739,11 @@ void TensorInferencer::process_single_output(
       transposed_output[static_cast<size_t>(det_idx) *
                             num_attributes_per_detection +
                         attr_idx] =
-          host_output_for_image_raw[static_cast<size_t>(
-                                        attr_idx) * // This is attribute-major
+          host_output_for_image_raw[static_cast<size_t>(attr_idx) *
                                         num_detections_in_slice +
                                     det_idx];
     }
   }
-  // If your model output is already [batch, num_detections,
-  // attributes_per_detection], then host_output_for_image_raw points to the
-  // start of [num_detections, attributes_per_detection] and you can directly
-  // use it without transposition, or the transposition logic is simpler. const
-  // float* det_attrs = host_output_for_image_raw + det_idx *
-  // num_attributes_per_detection;
 
   auto it = class_name_to_id_.find(this->object_name_);
   if (it == class_name_to_id_.end()) {
@@ -837,18 +763,20 @@ void TensorInferencer::process_single_output(
 
   std::vector<Detection> detected_objects;
   for (int i = 0; i < num_detections_in_slice; ++i) {
-    // Use the transposed_output:
     const float *det_attrs = &transposed_output[static_cast<size_t>(i) *
                                                 num_attributes_per_detection];
-    // If no transposition was needed because engine output is already
-    // [detections, attributes]: const float *det_attrs =
-    // host_output_for_image_raw + (static_cast<size_t>(i) *
-    // num_attributes_per_detection);
 
     float max_score = 0.0f;
     int best_class_id = -1;
     // Assumes class scores start at index 4 of det_attrs (after cx, cy, w, h)
     for (int j = 0; j < num_classes_; ++j) {
+      // Ensure 4+j is within bounds of num_attributes_per_detection
+      if (4 + j >= num_attributes_per_detection) {
+        std::cerr << "[错误][ProcessOutput] Class score index " << (4 + j)
+                  << " is out of bounds for attributes per detection ("
+                  << num_attributes_per_detection << ")" << std::endl;
+        break;
+      }
       float score = det_attrs[4 + j];
       if (score > max_score) {
         max_score = score;
@@ -857,6 +785,13 @@ void TensorInferencer::process_single_output(
     }
 
     if (best_class_id == target_class_id && max_score >= confidence_threshold) {
+      // Ensure indices 0,1,2,3 are within bounds
+      if (3 >= num_attributes_per_detection) {
+        std::cerr << "[错误][ProcessOutput] Coordinate index 3"
+                  << " is out of bounds for attributes per detection ("
+                  << num_attributes_per_detection << ")" << std::endl;
+        continue;
+      }
       float cx = det_attrs[0];
       float cy = det_attrs[1];
       float w = det_attrs[2];
@@ -864,11 +799,9 @@ void TensorInferencer::process_single_output(
       float x1_model = std::max(0.0f, cx - w / 2.0f);
       float y1_model = std::max(0.0f, cy - h / 2.0f);
       float x2_model =
-          std::min(static_cast<float>(target_w_ - 1),
-                   cx + w / 2.0f); // target_w_ is model input width
+          std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
       float y2_model =
-          std::min(static_cast<float>(target_h_ - 1),
-                   cy + h / 2.0f); // target_h_ is model input height
+          std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
       if (x2_model > x1_model && y2_model > y1_model) {
         detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
                                     max_score, best_class_id,
