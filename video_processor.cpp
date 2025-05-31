@@ -251,17 +251,17 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &frames, int gopId) {
   // input.latest_frame_index = gopId;
   // tensor_inferencer->infer(input);
 
-  // {
-  //   std::lock_guard<std::mutex> lock(task_mutex);
-  //   total_decoded_frames += frames.size();
-  //   remaining_decode_tasks -= frames.size();
-  // }
-  // task_cv.notify_all();
   {
-    std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    pending_infer_tasks++;
+    std::lock_guard<std::mutex> lock(task_mutex);
+    total_decoded_frames += frames.size();
+    remaining_decode_tasks -= frames.size();
   }
-  pending_infer_cv.notify_all();
+  task_cv.notify_all();
+  // {
+  //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
+  //   pending_infer_tasks++;
+  // }
+  // pending_infer_cv.notify_all();
 }
 
 void VideoProcessor::add_av_packet_to_list(std::vector<AVPacket *> **packages,
