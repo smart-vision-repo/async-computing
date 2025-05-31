@@ -252,12 +252,11 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   // input.confidence_thresh = confidence;
   // input.gopIdx = gopId;
   // tensor_inferencer->infer(input);
-  // {
-  //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
-  //   pending_infer_tasks++;
-  // }
-  // pending_infer_cv.notify_all();
-  // 取消推理
+  {
+    std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    pending_infer_tasks++;
+  }
+  pending_infer_cv.notify_all();
   {
     std::lock_guard<std::mutex> lock(task_mutex);
     remaining_decode_tasks--;
