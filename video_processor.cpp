@@ -223,7 +223,7 @@ int VideoProcessor::process() {
     }
   }
 
-  tensor_inferencer.finalizeInference();
+  tensor_inferencer->finalizeInference();
 
   for (auto &pkts : all_pkts) {
     clear_av_packets(&pkts);
