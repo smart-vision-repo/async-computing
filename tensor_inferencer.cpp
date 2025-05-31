@@ -2,31 +2,27 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstdlib> // For std::getenv, std::exit, std::stoi
+#include <cstdlib>
 #include <fstream>
-#include <iomanip> // For std::setw, std::setfill, std::fixed, std::setprecision
+#include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <sstream> // For std::ostringstream
+#include <sstream>
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-// Using nvinfer1 namespace
 using namespace nvinfer1;
 
-// TensorRT Logger - Defined ONCE
 class TrtLogger : public ILogger {
   void log(Severity severity, const char *msg) noexcept override {
-    // Only print warnings and above
     if (severity <= Severity::kWARNING) {
       std::cout << "[TRT] " << msg << std::endl;
     }
   }
 };
-TrtLogger gLogger; // Global logger instance - Defined ONCE
+TrtLogger gLogger;
 
-// Static method definition for readEngineFile - Defined ONCE
 std::vector<char>
 TensorInferencer::readEngineFile(const std::string &enginePath) {
   std::ifstream file(enginePath, std::ios::binary);
@@ -45,7 +41,6 @@ TensorInferencer::readEngineFile(const std::string &enginePath) {
   return engineData;
 }
 
-// Static method definition for roundToNearestMultiple - Defined ONCE
 int TensorInferencer::roundToNearestMultiple(int val, int base) {
   return ((val + base / 2) / base) * base;
 }
@@ -57,7 +52,9 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
       runtime_(nullptr), engine_(nullptr), context_(nullptr),
       inputDevice_(nullptr), outputDevice_(nullptr), inputIndex_(-1),
       outputIndex_(-1), num_classes_(0), BATCH_SIZE_(1),
-      current_callback_(callback) {
+      current_callback_(callback),
+      constant_metadata_initialized_(
+          false) { // cached_geometry_ will be default initialized
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -194,8 +191,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   Dims reportedInputDims = engine_->getBindingDimensions(inputIndex_);
   if (reportedInputDims.nbDims == 4) {
     bool useEngineDims = true;
-    if (reportedInputDims.d[2] <= 0 ||
-        reportedInputDims.d[3] <= 0) { // Check H and W from engine
+    if (reportedInputDims.d[2] <= 0 || reportedInputDims.d[3] <= 0) {
       useEngineDims = false;
     }
     if (useEngineDims) {
@@ -225,12 +221,12 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
   std::cout << "[信息] 引擎输入张量 'images' 确认为 DataType::kFLOAT。"
             << std::endl;
 
-  current_batch_raw_frames_.reserve(BATCH_SIZE_); // Reserve for new frame list
-  current_batch_metadata_.reserve(BATCH_SIZE_); // Reserve for new metadata list
+  current_batch_raw_frames_.reserve(BATCH_SIZE_);
+  current_batch_metadata_.reserve(BATCH_SIZE_);
 }
 
 TensorInferencer::~TensorInferencer() {
-  if (!current_batch_raw_frames_.empty()) { // Check new frame list
+  if (!current_batch_raw_frames_.empty()) {
     std::cout
         << "[析构] 检测到未处理的批处理帧数据。正在执行 finalizeInference..."
         << std::endl;
@@ -293,9 +289,9 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   std::lock_guard<std::mutex> lock(batch_mutex_);
 
   if (input.decoded_frames.empty()) {
-    std::cerr << "[警告][Infer] 输入的 decoded_frames (GOP: " << input.gopIdx
-              << ") 为空。跳过。" << std::endl;
-    return true; // Or false depending on desired behavior for empty inputs
+    std::cerr << "[警告][Infer] 输入的 decoded_frames 为空。跳过。"
+              << std::endl;
+    return true;
   }
 
   int num_frames_in_input = input.decoded_frames.size();
@@ -303,35 +299,73 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   for (int i = 0; i < num_frames_in_input; ++i) {
     const cv::Mat &current_frame_mat = input.decoded_frames[i];
     if (current_frame_mat.empty()) {
-      std::cerr << "[警告][Infer] Frame at index " << i << " in GOP "
-                << input.gopIdx
+      std::cerr << "[警告][Infer] Frame at index " << i
                 << " (latest_frame_index: " << input.latest_frame_index
                 << ") is empty. Skipping." << std::endl;
       continue;
     }
 
+    if (!constant_metadata_initialized_ && !current_frame_mat.empty()) {
+      cached_geometry_.original_w = current_frame_mat.cols;
+      cached_geometry_.original_h = current_frame_mat.rows;
+
+      if (cached_geometry_.original_w > 0 && cached_geometry_.original_h > 0) {
+        float scale_x =
+            static_cast<float>(target_w_) / cached_geometry_.original_w;
+        float scale_y =
+            static_cast<float>(target_h_) / cached_geometry_.original_h;
+        cached_geometry_.scale_to_model = std::min(scale_x, scale_y);
+
+        int scaled_w = static_cast<int>(std::round(
+            cached_geometry_.original_w * cached_geometry_.scale_to_model));
+        int scaled_h = static_cast<int>(std::round(
+            cached_geometry_.original_h * cached_geometry_.scale_to_model));
+
+        cached_geometry_.pad_w_left = (target_w_ - scaled_w) / 2;
+        cached_geometry_.pad_h_top = (target_h_ - scaled_h) / 2;
+        constant_metadata_initialized_ = true;
+        std::cout << "[信息][Infer] 恒定图像元数据已缓存: W_orig="
+                  << cached_geometry_.original_w
+                  << ", H_orig=" << cached_geometry_.original_h
+                  << ", Scale=" << cached_geometry_.scale_to_model
+                  << ", PadW=" << cached_geometry_.pad_w_left
+                  << ", PadH=" << cached_geometry_.pad_h_top << std::endl;
+      } else {
+        std::cerr << "[警告][Infer] "
+                     "用于元数据缓存的第一帧为空或尺寸无效。元数据未缓存。"
+                  << std::endl;
+        constant_metadata_initialized_ = false;
+      }
+    }
+
     BatchImageMetadata meta;
     meta.is_real_image = true;
-    meta.original_w = current_frame_mat.cols;
-    meta.original_h = current_frame_mat.rows;
-    meta.original_image_for_callback =
-        current_frame_mat.clone(); // Clone for saving/callback later
-    meta.gopIdx_original =
-        input.gopIdx; // Store original gopIdx (group identifier)
 
-    // Calculate global_frame_index for this specific frame
-    // interval_ is a member of TensorInferencer
+    if (constant_metadata_initialized_) {
+      meta.original_w = cached_geometry_.original_w;
+      meta.original_h = cached_geometry_.original_h;
+      meta.scale_to_model = cached_geometry_.scale_to_model;
+      meta.pad_w_left = cached_geometry_.pad_w_left;
+      meta.pad_h_top = cached_geometry_.pad_h_top;
+    } else {
+      meta.original_w = current_frame_mat.cols;
+      meta.original_h = current_frame_mat.rows;
+      meta.scale_to_model = 0.0f;
+      meta.pad_w_left = 0;
+      meta.pad_h_top = 0;
+    }
+
+    meta.original_image_for_callback = current_frame_mat.clone();
     meta.global_frame_index = input.latest_frame_index -
                               (((num_frames_in_input - 1) - i) * interval_);
 
-    current_batch_raw_frames_.push_back(
-        current_frame_mat); // Add the raw frame for preprocessing
-    current_batch_metadata_.push_back(meta); // Add its metadata
+    current_batch_raw_frames_.push_back(current_frame_mat);
+    current_batch_metadata_.push_back(meta);
 
     if (current_batch_raw_frames_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
-      performBatchInference(false); // Process full batch of individual frames
-      current_batch_raw_frames_.clear(); // Clear after processing
-      current_batch_metadata_.clear();   // Clear after processing
+      performBatchInference(false);
+      current_batch_raw_frames_.clear();
+      current_batch_metadata_.clear();
     }
   }
   return true;
@@ -340,44 +374,48 @@ bool TensorInferencer::infer(const InferenceInput &input) {
 void TensorInferencer::finalizeInference() {
   std::lock_guard<std::mutex> lock(batch_mutex_);
 
-  if (!current_batch_raw_frames_.empty()) { // Check the new frame list
+  if (!current_batch_raw_frames_.empty()) {
     std::cout << "[Finalize] 处理剩余 " << current_batch_raw_frames_.size()
               << " 个帧..." << std::endl;
-    performBatchInference(true);       // Pad batch if necessary
-    current_batch_raw_frames_.clear(); // Clear after processing
-    current_batch_metadata_.clear();   // Clear after processing
+    performBatchInference(true);
+    current_batch_raw_frames_.clear();
+    current_batch_metadata_.clear();
   } else {
     std::cout << "[Finalize] 没有剩余帧需要处理。" << std::endl;
   }
 }
 
-std::vector<float> TensorInferencer::preprocess_single_image_for_batch(
-    const cv::Mat &img,
-    BatchImageMetadata &meta) { // meta is updated
+std::vector<float>
+TensorInferencer::preprocess_single_image_for_batch(const cv::Mat &img,
+                                                    BatchImageMetadata &meta) {
   const int model_input_w = target_w_;
   const int model_input_h = target_h_;
   cv::Mat image_to_process;
 
-  if (!meta.is_real_image) { // This case is for dummy/padding images
+  if (!meta.is_real_image) {
     image_to_process = cv::Mat(model_input_h, model_input_w, CV_8UC3,
                                cv::Scalar(114, 114, 114));
-    // meta.original_w, meta.original_h for dummy images are set by caller
-    // (performBatchInference) meta.scale_to_model, meta.pad_w_left,
-    // meta.pad_h_top are also set by caller for dummy
-  } else { // This is for real images
-    image_to_process =
-        img; // Use the passed image directly (it's from
-             // current_batch_raw_frames_) meta.original_w and meta.original_h
-             // are already set from the real frame.
+  } else {
+    image_to_process = img;
   }
 
   cv::Mat processed_for_model(model_input_h, model_input_w, CV_8UC3,
                               cv::Scalar(114, 114, 114));
 
   if (meta.is_real_image && meta.original_w > 0 && meta.original_h > 0) {
-    float scale_x = static_cast<float>(model_input_w) / meta.original_w;
-    float scale_y = static_cast<float>(model_input_h) / meta.original_h;
-    meta.scale_to_model = std::min(scale_x, scale_y);
+    if (meta.scale_to_model == 0.0f) {
+      float scale_x = static_cast<float>(model_input_w) / meta.original_w;
+      float scale_y = static_cast<float>(model_input_h) / meta.original_h;
+      meta.scale_to_model = std::min(scale_x, scale_y);
+
+      int temp_scaled_w =
+          static_cast<int>(std::round(meta.original_w * meta.scale_to_model));
+      int temp_scaled_h =
+          static_cast<int>(std::round(meta.original_h * meta.scale_to_model));
+
+      meta.pad_w_left = (model_input_w - temp_scaled_w) / 2;
+      meta.pad_h_top = (model_input_h - temp_scaled_h) / 2;
+    }
 
     int scaled_w =
         static_cast<int>(std::round(meta.original_w * meta.scale_to_model));
@@ -388,23 +426,21 @@ std::vector<float> TensorInferencer::preprocess_single_image_for_batch(
     cv::resize(image_to_process, resized_img, cv::Size(scaled_w, scaled_h), 0,
                0, cv::INTER_LINEAR);
 
-    meta.pad_w_left = (model_input_w - scaled_w) / 2;
-    meta.pad_h_top = (model_input_h - scaled_h) / 2;
     resized_img.copyTo(processed_for_model(
         cv::Rect(meta.pad_w_left, meta.pad_h_top, scaled_w, scaled_h)));
-  } else if (!meta.is_real_image) { // Dummy image already sized correctly
+
+  } else if (!meta.is_real_image) {
     processed_for_model = image_to_process;
-  } else { // Real image but invalid original dimensions
-    std::cerr << "[警告][PreProc] Real image (GOP: " << meta.gopIdx_original
-              << ", Frame: " << meta.global_frame_index
+  } else {
+    std::cerr << "[警告][PreProc] Real image (Frame: "
+              << meta.global_frame_index
               << ") has invalid original dimensions (" << meta.original_w << "x"
               << meta.original_h << "). Using letterbox fill." << std::endl;
-    // processed_for_model is already the 114-filled Mat of target dimensions.
   }
 
   cv::Mat img_rgb;
   cv::cvtColor(processed_for_model, img_rgb, cv::COLOR_BGR2RGB);
-  int c = 3; // Channels
+  int c = 3;
   cv::Mat chw_input_fp32;
   img_rgb.convertTo(chw_input_fp32, CV_32FC3, 1.0 / 255.0);
 
@@ -438,10 +474,8 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   batched_input_data.reserve(static_cast<size_t>(ACTUAL_BATCH_SIZE_FOR_GPU) *
                              3 * target_h_ * target_w_);
 
-  // processing_metadata_for_batch will hold metadata for all items sent to GPU
-  // (real + dummy)
   std::vector<BatchImageMetadata> processing_metadata_for_batch =
-      current_batch_metadata_; // Copy real metadata
+      current_batch_metadata_;
 
   if (pad_batch &&
       NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH < ACTUAL_BATCH_SIZE_FOR_GPU) {
@@ -450,36 +484,26 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     for (int k = 0; k < num_to_pad; ++k) {
       BatchImageMetadata dummy_meta;
       dummy_meta.is_real_image = false;
-      dummy_meta.original_w =
-          target_w_; // For preprocess_single_image_for_batch if it uses these
-                     // for dummy
+      dummy_meta.original_w = target_w_;
       dummy_meta.original_h = target_h_;
-      dummy_meta.scale_to_model = 1.0f; // No scaling for dummy image
-      dummy_meta.pad_w_left = 0;        // No padding for dummy image
+      dummy_meta.scale_to_model = 1.0f;
+      dummy_meta.pad_w_left = 0;
       dummy_meta.pad_h_top = 0;
-      dummy_meta.gopIdx_original = -1;    // Indicate dummy
-      dummy_meta.global_frame_index = -1; // Indicate dummy
+      dummy_meta.global_frame_index = -1;
       dummy_meta.original_image_for_callback =
-          cv::Mat(target_h_, target_w_, CV_8UC3,
-                  cv::Scalar(114, 114, 114)); // Dummy image
+          cv::Mat(target_h_, target_w_, CV_8UC3, cv::Scalar(114, 114, 114));
       processing_metadata_for_batch.push_back(dummy_meta);
     }
   }
 
   for (int i = 0; i < ACTUAL_BATCH_SIZE_FOR_GPU; ++i) {
     cv::Mat current_raw_img_for_preprocessing;
-    if (i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH) { // Real frame
+    if (i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH) {
       current_raw_img_for_preprocessing = current_batch_raw_frames_[i];
-      // processing_metadata_for_batch[i] is already the correct metadata for
-      // this real frame
-    } else { // This is a padding image
+    } else {
       current_raw_img_for_preprocessing =
-          processing_metadata_for_batch[i]
-              .original_image_for_callback; // This is the dummy Mat
-      // processing_metadata_for_batch[i] is the dummy_meta
+          processing_metadata_for_batch[i].original_image_for_callback;
     }
-    // preprocess_single_image_for_batch updates the passed BatchImageMetadata
-    // (scale, pads)
     std::vector<float> single_image_data = preprocess_single_image_for_batch(
         current_raw_img_for_preprocessing, processing_metadata_for_batch[i]);
     batched_input_data.insert(batched_input_data.end(),
@@ -542,7 +566,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   if (inputDevice_)
-    cudaFree(inputDevice_); // Free previous allocations if any
+    cudaFree(inputDevice_);
   if (outputDevice_)
     cudaFree(outputDevice_);
   inputDevice_ = nullptr;
@@ -594,26 +618,21 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   std::vector<InferenceResult> batch_inference_results_for_callback;
 
   for (int i = 0; i < NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH; ++i) {
-    // We only care about results from real frames, not padded ones.
-    // The metadata for this frame is processing_metadata_for_batch[i]
     const BatchImageMetadata &frame_meta = processing_metadata_for_batch[i];
 
-    if (!frame_meta.is_real_image) { // Should not happen if iterating up to
-                                     // NUM_REAL_FRAMES... but defensive.
+    if (!frame_meta.is_real_image) {
       std::cerr << "[警告][PerformBatch] Attempting to post-process a non-real "
                    "frame at batch index "
                 << i << ". Skipping." << std::endl;
       continue;
     }
     if (frame_meta.original_image_for_callback.empty()) {
-      std::cerr << "[警告][PerformBatch] Real frame (GOP: "
-                << frame_meta.gopIdx_original
-                << ", Frame: " << frame_meta.global_frame_index
+      std::cerr << "[警告][PerformBatch] Real frame (Frame: "
+                << frame_meta.global_frame_index
                 << ") original image is empty before post-processing. Skipping."
                 << std::endl;
       InferenceResult res;
-      res.info = "Error: Input image was empty for GOP " +
-                 std::to_string(frame_meta.gopIdx_original) + ", Frame " +
+      res.info = "Error: Input image was empty for Frame " +
                  std::to_string(frame_meta.global_frame_index);
       batch_inference_results_for_callback.push_back(res);
       continue;
@@ -624,14 +643,10 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
         static_cast<size_t>(i) * num_attributes_from_engine *
             num_detections_per_image_from_engine;
 
-    std::vector<InferenceResult>
-        single_frame_results; // Results for this one frame
-    process_single_output(
-        frame_meta, // Pass the full metadata for THIS frame
-        output_for_this_image_start, num_detections_per_image_from_engine,
-        num_attributes_from_engine,
-        i, // original_batch_idx_for_debug (index in the GPU batch)
-        single_frame_results);
+    std::vector<InferenceResult> single_frame_results;
+    process_single_output(frame_meta, output_for_this_image_start,
+                          num_detections_per_image_from_engine,
+                          num_attributes_from_engine, i, single_frame_results);
 
     batch_inference_results_for_callback.insert(
         batch_inference_results_for_callback.end(),
@@ -639,24 +654,18 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   if (current_callback_ && NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH > 0) {
-    // Even if batch_inference_results_for_callback is empty (e.g. no detections
-    // on any frame), process_single_output should have added "No detection"
-    // messages. So, we can just send what we have.
     current_callback_(batch_inference_results_for_callback);
   } else if (!current_callback_ &&
              NUM_REAL_FRAMES_IN_CURRENT_PROCESSING_BATCH > 0) {
     std::cerr << "[错误][PerformBatch] 回调函数未设置，但有帧需要处理！"
               << std::endl;
   }
-  // Clearing of current_batch_raw_frames_ and current_batch_metadata_
-  // is handled by the caller (infer / finalizeInference)
 }
 
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
-    int num_attributes_per_detection,
-    int original_batch_idx_for_debug, // Index in the current GPU batch
+    int num_attributes_per_detection, int original_batch_idx_for_debug,
     std::vector<InferenceResult> &frame_results) {
 
   std::vector<float> transposed_output(
@@ -676,13 +685,12 @@ void TensorInferencer::process_single_output(
 
   auto it = class_name_to_id_.find(this->object_name_);
   if (it == class_name_to_id_.end()) {
-    std::cerr << "[错误][ProcessOutput] (GOP: " << image_meta.gopIdx_original
-              << ", Frame: " << image_meta.global_frame_index
-              << ") 目标对象名称 '" << this->object_name_
-              << "' 在类别名称中未找到。" << std::endl;
+    std::cerr << "[错误][ProcessOutput] (Frame: "
+              << image_meta.global_frame_index << ") 目标对象名称 '"
+              << this->object_name_ << "' 在类别名称中未找到。" << std::endl;
     InferenceResult res;
-    res.info = "Error for GOP " + std::to_string(image_meta.gopIdx_original) +
-               ", Frame " + std::to_string(image_meta.global_frame_index) +
+    res.info = "Error for Frame " +
+               std::to_string(image_meta.global_frame_index) +
                ": Target object name '" + this->object_name_ +
                "' not found in class names.";
     frame_results.push_back(res);
@@ -717,24 +725,23 @@ void TensorInferencer::process_single_output(
       float y2_model =
           std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
       if (x2_model > x1_model && y2_model > y1_model) {
-        detected_objects.push_back(
-            {x1_model, y1_model, x2_model, y2_model, max_score, best_class_id,
-             original_batch_idx_for_debug, // Index in GPU batch
-             image_meta.is_real_image ? "REAL" : "PAD"});
+        detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
+                                    max_score, best_class_id,
+                                    original_batch_idx_for_debug,
+                                    image_meta.is_real_image ? "REAL" : "PAD"});
       }
     }
   }
 
   std::vector<Detection> nms_detections = applyNMS(detected_objects, 0.45f);
 
-  float timestamp_sec = static_cast<float>(image_meta.global_frame_index) /
-                        30.0f; // Calculate once
+  float timestamp_sec =
+      static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
   if (nms_detections.empty() && image_meta.is_real_image) {
     InferenceResult res;
     std::ostringstream oss;
-    oss << "GOP " << image_meta.gopIdx_original << ", Frame "
-        << image_meta.global_frame_index << " (Time: " << std::fixed
+    oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
         << std::setprecision(2) << timestamp_sec << "s)"
         << ": No '" << this->object_name_
         << "' detected meeting criteria (conf: " << std::fixed
@@ -745,14 +752,11 @@ void TensorInferencer::process_single_output(
 
   for (size_t i = 0; i < nms_detections.size(); ++i) {
     const auto &det = nms_detections[i];
-    // Ensure we are only processing/saving for real images that had valid
-    // original_image_for_callback
     if (!image_meta.is_real_image ||
         image_meta.original_image_for_callback.empty()) {
       std::cout << "[警告][ProcessOutput] "
-                   "跳过保存/处理非真实或空图像元数据的检测。GOP: "
-                << image_meta.gopIdx_original
-                << ", Frame: " << image_meta.global_frame_index << std::endl;
+                   "跳过保存/处理非真实或空图像元数据的检测。Frame: "
+                << image_meta.global_frame_index << std::endl;
       continue;
     }
 
@@ -760,15 +764,13 @@ void TensorInferencer::process_single_output(
 
     InferenceResult res;
     std::ostringstream oss;
-    oss << "GOP " << image_meta.gopIdx_original << ", Frame "
-        << image_meta.global_frame_index << " (Time: " << std::fixed
+    oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
         << std::setprecision(2) << timestamp_sec << "s)"
         << ": Detected '" << this->object_name_
         << "' (ClassID: " << det.class_id << ")"
         << " with confidence " << std::fixed << std::setprecision(4)
         << det.confidence;
-    // Add original coordinate calculation if needed in the info string
-    // This part was present in original code, adapt if required:
+
     float x1_unpadded = det.x1 - image_meta.pad_w_left;
     float y1_unpadded = det.y1 - image_meta.pad_h_top;
     float x2_unpadded = det.x2 - image_meta.pad_w_left;
@@ -834,8 +836,6 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
     for (size_t j = i + 1; j < sorted_detections.size(); ++j) {
       if (suppressed[j])
         continue;
-      // NMS is currently class-agnostic as detections are pre-filtered for the
-      // target class_id.
       float iou = calculateIoU(sorted_detections[i], sorted_detections[j]);
       if (iou > iou_threshold) {
         suppressed[j] = true;
@@ -852,9 +852,8 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   if (!image_meta.is_real_image ||
       image_meta.original_image_for_callback.empty()) {
     std::cerr << "[警告][SAVE] Attempting to save annotation for non-real or "
-                 "empty image. GOP: "
-              << image_meta.gopIdx_original
-              << ", Frame: " << image_meta.global_frame_index
+                 "empty image. Frame: "
+              << image_meta.global_frame_index
               << ", Detection status: " << det.status_info << ". Skipping."
               << std::endl;
     return;
@@ -862,7 +861,6 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   cv::Mat img_to_save = image_meta.original_image_for_callback.clone();
 
-  // Coordinate transformation from model space to original image space
   float x1_unpadded = det.x1 - image_meta.pad_w_left;
   float y1_unpadded = det.y1 - image_meta.pad_h_top;
   float x2_unpadded = det.x2 - image_meta.pad_w_left;
@@ -873,9 +871,8 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
     std::cerr << "[警告][SAVE] Invalid scale_to_model ("
               << image_meta.scale_to_model << ") or original dimensions ("
               << image_meta.original_w << "x" << image_meta.original_h
-              << ") for GOP " << image_meta.gopIdx_original << ", Frame "
-              << image_meta.global_frame_index << ". Skipping save."
-              << std::endl;
+              << ") for Frame " << image_meta.global_frame_index
+              << ". Skipping save." << std::endl;
     return;
   }
 
@@ -888,7 +885,6 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   int y2_orig =
       static_cast<int>(std::round(y2_unpadded / image_meta.scale_to_model));
 
-  // Clip coordinates to image boundaries
   x1_orig = std::max(0, std::min(x1_orig, image_meta.original_w - 1));
   y1_orig = std::max(0, std::min(y1_orig, image_meta.original_h - 1));
   x2_orig = std::max(0, std::min(x2_orig, image_meta.original_w - 1));
@@ -896,8 +892,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   if (x2_orig <= x1_orig || y2_orig <= y1_orig) {
     std::cout
-        << "[警告][SAVE] Invalid scaled box after letterbox reversal for GOP "
-        << image_meta.gopIdx_original << ", Frame "
+        << "[警告][SAVE] Invalid scaled box after letterbox reversal for Frame "
         << image_meta.global_frame_index << ". Original box (model scale): ["
         << det.x1 << "," << det.y1 << "," << det.x2 << "," << det.y2 << "]"
         << ". Scaled box (original image): [" << x1_orig << "," << y1_orig
@@ -911,8 +906,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   cv::rectangle(img_to_save, cv::Point(x1_orig, y1_orig),
                 cv::Point(x2_orig, y2_orig), cv::Scalar(0, 255, 0), 2);
   std::ostringstream label;
-  label << this->object_name_ << " " << std::fixed
-        << std::setprecision(2) // Use class member object_name_
+  label << this->object_name_ << " " << std::fixed << std::setprecision(2)
         << det.confidence;
   int baseline = 0;
   cv::Size textSize =
@@ -920,18 +914,16 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   baseline += 1;
 
   cv::Point textOrg(x1_orig, y1_orig - 5);
-  if (textOrg.y - textSize.height < 0) { // Adjust if text goes off top
+  if (textOrg.y - textSize.height < 0) {
     textOrg.y = y1_orig + textSize.height + 5;
-    if (textOrg.y > image_meta.original_h -
-                        baseline) { // Further adjust if still off bottom
+    if (textOrg.y > image_meta.original_h - baseline) {
       textOrg.y = image_meta.original_h - baseline - 2;
     }
   }
-  if (textOrg.x + textSize.width >
-      image_meta.original_w) { // Adjust if text goes off right
+  if (textOrg.x + textSize.width > image_meta.original_w) {
     textOrg.x = image_meta.original_w - textSize.width - 2;
   }
-  textOrg.x = std::max(0, textOrg.x); // Ensure text doesn't go off left
+  textOrg.x = std::max(0, textOrg.x);
 
   cv::rectangle(
       img_to_save,
@@ -941,27 +933,19 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   cv::putText(img_to_save, label.str(), textOrg, cv::FONT_HERSHEY_SIMPLEX, 0.7,
               cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 
-  // --- New Filename Logic ---
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
   std::ostringstream filename_oss;
-  filename_oss << image_output_path_ << "/gop" << std::setw(4)
-               << std::setfill('0') << image_meta.gopIdx_original << "_frame"
-               << std::setw(6) << std::setfill('0')
-               << image_meta.global_frame_index << "_time" << std::fixed
-               << std::setprecision(2) << timestamp_sec << "s"
+  filename_oss << image_output_path_ << "/frame" << std::setw(6)
+               << std::setfill('0') << image_meta.global_frame_index << "_time"
+               << std::fixed << std::setprecision(2) << timestamp_sec << "s"
                << "_obj" << std::setw(2) << std::setfill('0')
                << detection_idx_in_image << "_" << this->object_name_ << "_conf"
                << static_cast<int>(det.confidence * 100) << ".jpg";
 
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
-  if (success) {
-    // std::cout << "[SAVE] Annotated image (GOP: " <<
-    // image_meta.gopIdx_original
-    //           << ", Frame: " << image_meta.global_frame_index
-    //           << ") saved: " << filename_oss.str() << std::endl;
-  } else {
+  if (!success) {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
               << std::endl;
   }
