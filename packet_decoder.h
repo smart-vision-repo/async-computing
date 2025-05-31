@@ -14,7 +14,8 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-using DecodeCallback = std::function<void(std::vector<cv::Mat> &, int gopId)>;
+using DecodeCallback =
+    std::function<void(std::vector<cv::Mat> &frames, int gopId)>;
 
 class PacketDecoder {
 public:
