@@ -110,55 +110,8 @@ std::vector<uint16_t> preprocess_image(const cv::Mat &img, int input_w,
   // CPU-side float to half conversion is more complex. Let's assume for now the
   // data is prepared as float and will be correctly interpreted or copied. For
   // true CPU-side FP16 generation, you'd do:
-
-  您好，感谢您提供了测试图片，这张图片中确实有一只清晰可见的狗。如果程序没有检测到它，那说明我们的推理流程中肯定存在一些问题。
-
-  最可能导致这个问题的原因之一，并且在我之前提供的代码中也特别指出的，是 FP16
-      数据转换。手动在 CPU 端精确地将 float32 转换为
-      float16(半精度浮点数)
-          是比较复杂的，我给出的简化版转换可能不够准确，导致输入给模型的数据是损坏的。
-
-              让我们先尝试改进一下 preprocess_image 函数中的 FP16 转换部分。
-
-      1. 改进 FP16 转换逻辑
-
-          请替换掉 preprocess_image 函数末尾的 FP16 转换循环：
-
-              C++
-
-      // 替换掉这部分：
-      /*
-          for(size_t i = 0; i < chw_img_data.size(); ++i) {
-              // This is a very naive conversion and likely incorrect for many
-         values.
-              // fp16_img_data[i] = static_cast<uint16_t>(chw_img_data[i] *
-         some_fp16_factor); // Placeholder
-              // Proper conversion:
-              float val = chw_img_data[i];
-              unsigned int as_int;
-              memcpy(&as_int, &val, sizeof(float));
-              unsigned short sign = (as_int >> 31) & 0x1;
-              unsigned short exponent = ((as_int >> 23) & 0xFF) - 127 + 15; //
-         Adjust bias unsigned short mantissa = (as_int >> (23 - 10)) & 0x3FF;
-
-              if (((as_int >> 23) & 0xFF) == 0) { // Zero or subnormal
-                  exponent = 0;
-                  mantissa = 0; // simplified
-              } else if (((as_int >> 23) & 0xFF) == 0xFF) { // Inf or NaN
-                  exponent = 0x1F;
-                  mantissa = (as_int & 0x7FFFFF) ? 0x200 : 0; // NaN if mantissa
-         is non-zero } else if (exponent <= 0) { // Underflow to zero or
-         subnormal
-                   // For simplicity, map to zero. Proper subnormal conversion
-         is more complex. exponent = 0; mantissa = 0; } else if (exponent >=
-         0x1F) { // Overflow exponent = 0x1F; mantissa = 0;
-              }
-              fp16_img_data[i] = (sign << 15) | (exponent << 10) | mantissa;
-          }
-      */
-
-      // 使用下面这个更标准的（但仍然是CPU端）float32 到 IEEE 754 half 的转换：
-      for (size_t i = 0; i < chw_img_data.size(); ++i) {
+  // 使用下面这个更标准的（但仍然是CPU端）float32 到 IEEE 754 half 的转换：
+  for (size_t i = 0; i < chw_img_data.size(); ++i) {
     float float_val = chw_img_data[i];
     unsigned int int_val;
     memcpy(&int_val, &float_val, sizeof(float));
