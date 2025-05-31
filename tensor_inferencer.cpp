@@ -321,7 +321,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   current_batch_metadata_.push_back(meta);
 
   if (current_batch_inputs_.size() >= static_cast<size_t>(BATCH_SIZE_)) {
-    std::cout << "[Infer] 批次已满。执行推理..." << std::endl;
     performBatchInference(false);
     current_batch_inputs_.clear();
     current_batch_metadata_.clear();
@@ -418,13 +417,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
       pad_batch ? BATCH_SIZE_ : static_cast<int>(current_batch_inputs_.size());
   const int NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH =
       static_cast<int>(current_batch_inputs_.size());
-
-  std::cout << "[PerformBatch] 开始为 "
-            << NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH
-            << " 个真实输入执行推理 (GPU批处理大小: "
-            << ACTUAL_BATCH_SIZE_FOR_GPU
-            << ", 是否填充: " << (pad_batch ? "是" : "否") << ")." << std::endl;
-
   std::vector<float> batched_input_data;
   batched_input_data.reserve(static_cast<size_t>(ACTUAL_BATCH_SIZE_FOR_GPU) *
                              3 * target_h_ * target_w_);
