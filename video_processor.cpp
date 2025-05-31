@@ -210,7 +210,7 @@ int VideoProcessor::process() {
   while (true) {
     std::unique_lock<std::mutex> lock(pending_infer_mutex);
     if (pending_infer_cv.wait_for(lock, std::chrono::seconds(2), [this]() {
-          std::cout << "\rRemaining decode tasks: "
+          std::cout << "\rRemaining infer tasks: "
                     << remaining_decode_tasks.load() << std::flush;
           return pending_infer_tasks.load() <= 0;
         })) {
