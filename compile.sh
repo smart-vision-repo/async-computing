@@ -38,7 +38,6 @@ compile() {
         main.cpp
         video_processor.cpp
         packet_decoder.cpp
-        yolo_inferencer.cpp
         message_proxy.cpp
         tensor_inferencer.cpp
     )
