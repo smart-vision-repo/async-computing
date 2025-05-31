@@ -14,7 +14,7 @@ PacketDecoder::PacketDecoder(std::string video_file_name)
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
-  int numCores = std::thread::hardware_concurrency() / 2;
+  int numCores = std::thread::hardware_concurrency();
   for (int i = 0; i < numCores; ++i) {
     workers.emplace_back(&PacketDecoder::workerLoop, this);
   }
