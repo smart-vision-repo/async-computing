@@ -34,7 +34,6 @@ extern "C" {
 
 VideoProcessor::~VideoProcessor() {
   stop_infer_thread = true;
-  infer_cv.notify_all();
   if (infer_thread.joinable()) {
     infer_thread.join();
   }
@@ -103,7 +102,6 @@ bool VideoProcessor::initialize() {
     return false;
   }
 
-  initInferThead();
   callback = [this](const std::vector<InferenceResult> &result) {
     this->handleInferenceResult(result);
   };
