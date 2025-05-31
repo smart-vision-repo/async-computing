@@ -49,9 +49,76 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
   return ((val + base / 2) / base) * base;
 }
 
+#include "tensor_inferencer.hpp"
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdlib> // For std::getenv, std::exit, std::stoi
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <numeric>
+#include <sstream> // For std::ostringstream
+
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+
+// Using nvinfer1 namespace
+using namespace nvinfer1;
+
+// TensorRT Logger (assuming gLogger is defined as before or this is
+// self-contained)
+class TrtLogger : public ILogger {
+  void log(Severity severity, const char *msg) noexcept override {
+    if (severity <= Severity::kWARNING) {
+      std::cout << "[TRT] " << msg << std::endl;
+    }
+  }
+} gLogger;
+
+// Definition for readEngineFile (static method)
+std::vector<char>
+TensorInferencer::readEngineFile(const std::string &enginePath) {
+  std::ifstream file(enginePath, std::ios::binary);
+  if (!file.good()) {
+    std::cerr << "[错误] 打开引擎文件失败: " << enginePath << std::endl;
+    return {};
+  }
+  file.seekg(0, file.end);
+  size_t size = file.tellg();
+  file.seekg(0, file.beg);
+  std::vector<char> engineData(size);
+  if (size > 0) {
+    file.read(engineData.data(), size);
+  }
+  file.close();
+  return engineData;
+}
+
+// Definition for roundToNearestMultiple (static method)
+int TensorInferencer::roundToNearestMultiple(int val, int base) {
+  return ((val + base / 2) / base) * base;
+}
+
 TensorInferencer::TensorInferencer(int video_height, int video_width)
-    : inputDevice_(nullptr), outputDevice_(nullptr), runtime_(nullptr),
-      engine_(nullptr), context_(nullptr) {
+    : runtime_(nullptr),      // Initialized first, matches declaration order
+      engine_(nullptr),       // Initialized second
+      context_(nullptr),      // Initialized third
+      inputDevice_(nullptr),  // Initialized fourth
+      outputDevice_(nullptr), // Initialized fifth
+      // bindings_ is default-initialized (empty vector)
+      // target_w_, target_h_ are initialized below
+      inputIndex_(-1),  // In-class initialization is used, but can be explicit
+      outputIndex_(-1), // In-class initialization is used
+      // class_name_to_id_, id_to_class_name_ are default-initialized
+      num_classes_(0), // In-class initialization is used
+      // engine_path_, image_output_path_ are default-initialized (empty
+      // strings)
+      BATCH_SIZE_(1) // In-class initialization is used
+// current_batch_inputs_, current_batch_metadata_ are default-initialized
+// current_callback_ is default-initialized
+// batch_mutex_ is default-initialized
+{
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
 
@@ -77,7 +144,7 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   } else {
     std::cerr << "[警告] 未设置 BATCH_SIZE 环境变量。将使用默认值 1。"
               << std::endl;
-    BATCH_SIZE_ = 1;
+    BATCH_SIZE_ = 1; // Default if not set
   }
   std::cout << "[初始化] 使用 BATCH_SIZE: " << BATCH_SIZE_ << std::endl;
 
@@ -86,7 +153,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       "YOLO_ENGINE_NAME_" + std::to_string(BATCH_SIZE_);
   const char *env_engine_path = std::getenv(engine_env_key.c_str());
   if (!env_engine_path) {
-    // 尝试不带BATCH_SIZE后缀的默认引擎名称
     const char *default_engine_path = std::getenv("YOLO_ENGINE_NAME");
     if (default_engine_path) {
       std::cout << "[警告] 未找到环境变量 " << engine_env_key
@@ -101,7 +167,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   engine_path_ = env_engine_path;
   std::cout << "[初始化] 使用引擎文件: " << engine_path_ << std::endl;
 
-  // 初始目标尺寸，可能会被引擎尺寸覆盖
   int initial_target_w = roundToNearestMultiple(video_width, 32);
   int initial_target_h = roundToNearestMultiple(video_height, 32);
 
@@ -131,12 +196,14 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
     std::exit(EXIT_FAILURE);
   }
 
-  runtime_ = createInferRuntime(gLogger);
+  runtime_ =
+      createInferRuntime(gLogger); // runtime_ is already initialized to nullptr
   assert(runtime_ != nullptr && "TensorRT runtime 创建失败。");
-  engine_ =
-      runtime_->deserializeCudaEngine(engineData.data(), engineData.size());
+  engine_ = runtime_->deserializeCudaEngine(
+      engineData.data(), engineData.size()); // engine_ is already initialized
   assert(engine_ != nullptr && "TensorRT 引擎反序列化失败。");
-  context_ = engine_->createExecutionContext();
+  context_ =
+      engine_->createExecutionContext(); // context_ is already initialized
   assert(context_ != nullptr && "TensorRT 执行上下文创建失败。");
 
   bindings_.resize(engine_->getNbBindings());
@@ -144,10 +211,11 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   std::cout << "[初始化] 引擎加载成功。" << std::endl;
   printEngineInfo();
 
-  inputIndex_ = engine_->getBindingIndex("images");
-  outputIndex_ = engine_->getBindingIndex("output0");
+  inputIndex_ =
+      engine_->getBindingIndex("images"); // inputIndex_ has in-class init
+  outputIndex_ =
+      engine_->getBindingIndex("output0"); // outputIndex_ has in-class init
 
-  // 如果 "output0" 未找到，则查找第一个输出张量
   if (outputIndex_ < 0) {
     for (int i = 0; i < engine_->getNbBindings(); ++i) {
       if (!engine_->bindingIsInput(i)) {
@@ -182,22 +250,19 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
       idx++;
     }
   }
-  num_classes_ = class_name_to_id_.size();
+  num_classes_ = class_name_to_id_.size(); // num_classes_ has in-class init
   std::cout << "[初始化] 加载了 " << num_classes_ << " 个类别名称。"
             << std::endl;
 
-  // 从引擎获取输入维度，并可能覆盖 target_w_ 和 target_h_
   Dims reportedInputDims = engine_->getBindingDimensions(inputIndex_);
-  if (reportedInputDims.nbDims == 4) { // 期望 NCHW
+  if (reportedInputDims.nbDims == 4) {
     bool useEngineDims = true;
-    // TensorRT 对动态维度使用 -1。我们关心 H 和 W，即 NCHW 中的 d[2] 和 d[3]
     if (reportedInputDims.d[2] <= 0 || reportedInputDims.d[3] <= 0) {
-      useEngineDims = false; // 如果 H 或 W 是动态的或无效的，则不使用引擎维度
+      useEngineDims = false;
     }
-
     if (useEngineDims) {
-      target_h_ = reportedInputDims.d[2]; // 从引擎设置 target_H
-      target_w_ = reportedInputDims.d[3]; // 从引擎设置 target_W
+      target_h_ = reportedInputDims.d[2];
+      target_w_ = reportedInputDims.d[3];
       std::cout << "[初始化] 使用引擎的优化配置文件维度作为目标尺寸: "
                 << target_w_ << "x" << target_h_ << std::endl;
     } else {
@@ -222,7 +287,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width)
   std::cout << "[信息] 引擎输入张量 'images' 确认为 DataType::kFLOAT。"
             << std::endl;
 
-  // 预留批处理输入空间
   current_batch_inputs_.reserve(BATCH_SIZE_);
   current_batch_metadata_.reserve(BATCH_SIZE_);
 }
