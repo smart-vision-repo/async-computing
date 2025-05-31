@@ -302,12 +302,36 @@ bool TensorInferencer::infer(const InferenceInput &input,
   std::lock_guard<std::mutex> lock(batch_mutex_);
 
   if (current_batch_inputs_.empty()) {
+    // This is the first input for a new batch.
+    // Store the callback that will be used for this entire batch.
     current_callback_ = callback;
-  } else if (callback != current_callback_ && current_callback_ != nullptr) {
-    std::cout << "[警告][Infer] "
-                 "新的回调函数与当前批次的回调函数不同。将使用批次开始时设置的"
-                 "回调函数。"
-              << std::endl;
+  } else {
+    // This is an existing batch. current_callback_ should hold the callback for
+    // this batch. The 'callback' parameter is for the current InferenceInput.
+    // Warn if the user seems to be trying to change the callback mid-batch.
+    // This happens if current_callback_ is already set (batch is ongoing with a
+    // callback) AND the new 'callback' parameter for this specific input is
+    // also non-null.
+    if (callback &&
+        current_callback_) { // Both newly passed 'callback' and stored
+                             // 'current_callback_' are non-null
+      std::cout
+          << "[警告][Infer] "
+             "为正在进行的批处理提供了新的回调。将使用批处理开始时设置的回调。"
+          << std::endl;
+    } else if (callback && !current_callback_) {
+      // Batch is ongoing, but no callback was set for it (e.g., first item had
+      // nullptr callback). Now, a non-null callback is provided for a
+      // subsequent item. Adopt this new callback for the batch.
+      std::cout << "[信息][Infer] "
+                   "当前批处理没有活动回调，但为此输入提供了新的回调。将为批处"
+                   "理设置此回调。"
+                << std::endl;
+      current_callback_ = callback;
+    }
+    // If 'callback' (parameter) is nullptr, we don't warn and continue using
+    // 'current_callback_'. If 'current_callback_' was already nullptr and new
+    // 'callback' (parameter) is also null, no change.
   }
 
   current_batch_inputs_.push_back(input);
