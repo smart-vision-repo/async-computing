@@ -3,7 +3,7 @@
 #include "inference.hpp"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
-#include "yolo_inferencer.h"
+// #include "yolo_inferencer.h"
 #include <atomic>
 #include <condition_variable>
 #include <optional>
@@ -44,7 +44,7 @@ private:
   std::condition_variable pending_infer_cv;
   std::thread infer_thread;
   std::atomic<bool> stop_infer_thread;
-  YoloInferencer inferencer;
+  // YoloInferencer inferencer;
   std::optional<PacketDecoder> decoder;
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
