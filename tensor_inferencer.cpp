@@ -957,9 +957,10 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (success) {
-    std::cout << "[SAVE] Annotated image (GOP: " << image_meta.gopIdx_original
-              << ", Frame: " << image_meta.global_frame_index
-              << ") saved: " << filename_oss.str() << std::endl;
+    // std::cout << "[SAVE] Annotated image (GOP: " <<
+    // image_meta.gopIdx_original
+    //           << ", Frame: " << image_meta.global_frame_index
+    //           << ") saved: " << filename_oss.str() << std::endl;
   } else {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
               << std::endl;
