@@ -154,8 +154,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
     for (int i = 0; i < engine_->getNbBindings(); ++i) {
       if (!engine_->bindingIsInput(i)) {
         outputIndex_ = i;
-        std::cout << "[信息] 找到第一个输出张量 '" << engine_->getBindingName(i)
-                  << "' 在索引 " << i << std::endl;
         break;
       }
     }
@@ -218,8 +216,6 @@ TensorInferencer::TensorInferencer(int video_height, int video_width,
               << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  std::cout << "[信息] 引擎输入张量 'images' 确认为 DataType::kFLOAT。"
-            << std::endl;
 
   current_batch_raw_frames_.reserve(BATCH_SIZE_);
   current_batch_metadata_.reserve(BATCH_SIZE_);
@@ -324,12 +320,6 @@ bool TensorInferencer::infer(const InferenceInput &input) {
         cached_geometry_.pad_w_left = (target_w_ - scaled_w) / 2;
         cached_geometry_.pad_h_top = (target_h_ - scaled_h) / 2;
         constant_metadata_initialized_ = true;
-        std::cout << "[信息][Infer] 恒定图像元数据已缓存: W_orig="
-                  << cached_geometry_.original_w
-                  << ", H_orig=" << cached_geometry_.original_h
-                  << ", Scale=" << cached_geometry_.scale_to_model
-                  << ", PadW=" << cached_geometry_.pad_w_left
-                  << ", PadH=" << cached_geometry_.pad_h_top << std::endl;
       } else {
         std::cerr << "[警告][Infer] "
                      "用于元数据缓存的第一帧为空或尺寸无效。元数据未缓存。"
