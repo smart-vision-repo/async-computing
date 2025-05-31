@@ -1,6 +1,8 @@
 #include "video_processor.h"
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 void usage(const char *program_name) {
   std::cerr << "Usage: " << program_name
@@ -12,6 +14,7 @@ void usage(const char *program_name) {
 }
 
 bool validateArguments(int argc, char *argv[]) {
+  std::cout << argc << std::endl;
   if (argc != 5) {
     usage(argv[0]);
     return false;
@@ -34,11 +37,35 @@ bool validateArguments(int argc, char *argv[]) {
   return true;
 }
 
+void loadEnvFile(const std::string &filePath) {
+  std::ifstream envFile(filePath);
+  if (!envFile.is_open()) {
+    std::cerr << "[WARNING] .env file not found or could not be opened: "
+              << filePath << std::endl;
+    return;
+  }
+
+  std::string line;
+  while (std::getline(envFile, line)) {
+    std::istringstream lineStream(line);
+    std::string key, value;
+    if (std::getline(lineStream, key, '=') && std::getline(lineStream, value)) {
+      if (!key.empty() && !value.empty()) {
+        setenv(key.c_str(), value.c_str(), 1);
+      }
+    }
+  }
+  envFile.close();
+}
+
+// Load environment variables from .env file
+loadEnvFile(".env");
 
 int main(int argc, char *argv[]) {
   if (!validateArguments(argc, argv)) {
     return 1;
   }
+  loadEnvFile();
   int interval = 0;
   std::string video_file_name = argv[1];
   std::string object_name = argv[2];
