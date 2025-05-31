@@ -426,7 +426,7 @@ bool TensorInferencer::infer(const InferenceInput &input) {
   // std::cout << "[INFER] 输出张量 '" << engine_->getBindingName(outputIndex_)
   //           << "' 运行时维度: ";
   for (int i = 0; i < outDims.nbDims; ++i) {
-    std::cout << outDims.d[i] << (i == outDims.nbDims - 1 ? "" : "x");
+    // std::cout << outDims.d[i] << (i == outDims.nbDims - 1 ? "" : "x");
     if (outDims.d[i] <=
         0) { // Should not happen after setBindingDimensions if engine is valid
       std::cerr << "\n[ERROR] 输出维度无效: " << outDims.d[i] << " at index "
