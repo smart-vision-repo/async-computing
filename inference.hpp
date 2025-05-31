@@ -6,9 +6,8 @@
 
 struct InferenceInput {
   std::vector<cv::Mat> decoded_frames;
-  // std::string object_name;
-  // float confidence_thresh;
   int gopIdx;
+  int latest_frame_index;
 };
 
 // 推理结果结构体（可扩展）
