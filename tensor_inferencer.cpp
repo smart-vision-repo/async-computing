@@ -616,10 +616,10 @@ void TensorInferencer::processOutput(
                        input.object_name, input.gopIdx, static_cast<int>(i));
   }
 
-  if (nms_detections.empty()) {
-    std::cout << "[INFO] 未检测到 '" << input.object_name
-              << "' (GOP: " << input.gopIdx << ") 满足条件." << std::endl;
-  }
+  // if (nms_detections.empty()) {
+  //   std::cout << "[INFO] 未检测到 '" << input.object_name
+  //             << "' (GOP: " << input.gopIdx << ") 满足条件." << std::endl;
+  // }
 }
 
 // calculateIoU and applyNMS (no changes from your original, assuming Detection

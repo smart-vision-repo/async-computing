@@ -1,3 +1,4 @@
+#include "message_proxy.h"
 #include "video_processor.h"
 #include <filesystem>
 #include <fstream>
