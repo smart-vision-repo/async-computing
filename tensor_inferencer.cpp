@@ -409,7 +409,6 @@ TensorInferencer::preprocess_single_image_for_batch(const cv::Mat &img,
 
 void TensorInferencer::performBatchInference(bool pad_batch) {
   if (current_batch_inputs_.empty()) {
-    std::cout << "[PerformBatch] 当前批次为空，无需推理。" << std::endl;
     return;
   }
 
@@ -627,13 +626,9 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   if (current_callback_ && !original_inputs_for_callback.empty()) {
-    std::cout << "[PerformBatch] 为 " << original_inputs_for_callback.size()
-              << " 个原始输入调用回调函数。" << std::endl;
     current_callback_(batch_inference_results);
   } else if (current_callback_ && original_inputs_for_callback.empty() &&
              NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH > 0) {
-    std::cout << "[PerformBatch] 调用回调函数，但没有有效的推理结果。"
-              << std::endl;
     current_callback_({});
   } else if (!current_callback_ && NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH >
                                        0) { // Check if callback is null only if
