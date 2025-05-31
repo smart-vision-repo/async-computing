@@ -257,6 +257,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &&frames, int gopId) {
   //   pending_infer_tasks++;
   // }
   // pending_infer_cv.notify_all();
+  // 取消推理
   {
     std::lock_guard<std::mutex> lock(task_mutex);
     remaining_decode_tasks--;
