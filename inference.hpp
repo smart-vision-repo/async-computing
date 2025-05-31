@@ -11,8 +11,7 @@ struct InferenceInput {
   int gopIdx;
 };
 
-
 // 推理结果结构体（可扩展）
 struct InferenceResult {
-  std::string info;  // 推理状态信息（可扩展）
+  std::string info; // 推理状态信息（可扩展）
 };

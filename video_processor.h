@@ -26,7 +26,7 @@ public:
 private:
   bool initialize();
   void initInferThead();
-  void handleInferenceResult(const InferenceResult &result);
+  void handleInferenceResult(const std::vector<InferenceResult> &result);
   void onDecoded(std::vector<cv::Mat> &&frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);

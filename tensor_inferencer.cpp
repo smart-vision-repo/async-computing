@@ -712,13 +712,13 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
       !original_inputs_for_callback.empty()) { // 只有当有真实输入被处理时才回调
     std::cout << "[PerformBatch] 为 " << original_inputs_for_callback.size()
               << " 个原始输入调用回调函数。" << std::endl;
-    current_callback_(batch_inference_results, original_inputs_for_callback);
+    current_callback_(batch_inference_results);
   } else if (current_callback_ && original_inputs_for_callback.empty() &&
              NUM_REAL_IMAGES_IN_CURRENT_PROCESSING_BATCH > 0) {
     // 如果有真实输入但没有结果（例如所有图像都处理失败），仍然回调空结果
     std::cout << "[PerformBatch] 调用回调函数，但没有有效的推理结果。"
               << std::endl;
-    current_callback_({}, {}); // 或者传递包含错误信息的 results
+    current_callback_({}); // 或者传递包含错误信息的 results
   } else if (!current_callback_) {
     std::cerr << "[错误][PerformBatch] 回调函数未设置！" << std::endl;
   }

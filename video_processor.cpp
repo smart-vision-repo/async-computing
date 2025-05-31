@@ -56,7 +56,7 @@ VideoProcessor::VideoProcessor(const std::string &video_file_name,
     throw std::runtime_error("Failed to initialize video processor");
   }
 
-  callback = [this](const InferenceResult &result) {
+  callback = [this](const std::vector<InferenceResult> &result) {
     this->handleInferenceResult(result);
   };
   initInferThead();
