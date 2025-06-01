@@ -14,7 +14,7 @@ void usage(const char *program_name) {
       << "  - object_name: non-empty string\n";
 }
 
-validateArguments(int argc, char *argv[]) {
+bool validateArguments(int argc, char *argv[]) {
   std::cout << argc << std::endl;
   if (argc != 4) {
     usage(argv[0]);
