@@ -81,7 +81,7 @@ compile() {
         $TRT_CUDA_LIB_PATHS \
         $FFMPEG_LIBS_STATIC_CORE $AMQP_LIBS_STATIC $OPENCV_LIBS_STATIC $TENSORRT_LINK_FLAGS \
         $ADDITIONAL_STATIC_DEPS \
-        $STATIC_COMPILE_FLAGS 2>compile.log; then
+        $STATIC_COMPILE_FLAGS; then
         log_error "Static compilation failed. See 'compile.log' for details."
         tail -n 20 compile.log >&2
         exit 1
