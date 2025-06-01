@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
   loadEnvFile();
   int interval = 0;
   int idx = 0;
-  std::string task_id = argv[++idx];
+  int task_id = std::stoi([++idx]);
   std::string video_file_name = argv[++idx];
   std::string object_name = argv[++idx];
   // float confidence = std::stof(argv[++idx]);
