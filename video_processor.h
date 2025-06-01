@@ -18,7 +18,7 @@ extern "C" {
 // 声明 VideoProcessor 类
 class VideoProcessor {
 public:
-  VideoProcessor(int order_id, const std::string &video_file_name,
+  VideoProcessor(int task_id, const std::string &video_file_name,
                  const std::string &object_name, float confidence, int interval,
                  int start_frame_index);
   ~VideoProcessor();
@@ -36,7 +36,7 @@ private:
 
   void setBatchSize();
   void clear_av_packets(std::vector<AVPacket *> *packages);
-  std::string order_id_;
+  std::string task_id_;
   std::string video_file_name_;
   std::string object_name_;
   float confidence_;

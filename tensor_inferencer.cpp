@@ -50,12 +50,12 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
   return ((val + base / 2) / base) * base;
 }
 
-TensorInferencer::TensorInferencer(int order_id, int video_height,
+TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    int video_width, std::string object_name,
                                    int interval, float confidence,
                                    InferenceCallback callback)
     : // Initializer list order matches declaration order in .hpp
-      order_id_(order_id), object_name_(object_name), interval_(interval),
+      task_id_(task_id), object_name_(object_name), interval_(interval),
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
       runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
@@ -144,7 +144,7 @@ TensorInferencer::TensorInferencer(int order_id, int video_height,
     std::cerr << "[错误] 未设置环境变量 YOLO_IMAGE_PATH。" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  image_output_path_ = output_path_env + "/" + std::to_string(order_id_);
+  image_output_path_ = output_path_env + "/" + std::to_string(task_id_);
   if (!std::filesystem::exists(image_output_path_)) {
     if (!std::filesystem::create_directories(image_output_path_)) {
       std::cerr << "[错误] 创建目录失败: " << image_output_path_ << std::endl;
