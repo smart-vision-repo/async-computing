@@ -139,7 +139,7 @@ int VideoProcessor::process() {
     return -1;
   }
 
-  gop_idx = 0, frame_idx_in_gop = 0;
+  int gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
   int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
       total_packages = 0; // total_packages seems to be only updated once, for
