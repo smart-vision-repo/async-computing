@@ -45,10 +45,10 @@ VideoProcessor::~VideoProcessor() {
   }
 }
 
-VideoProcessor::VideoProcessor(int task_id, const std::string &video_file_name,
+VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
                                const std::string &object_name, float confidence,
                                int interval, int start_frame_index)
-    : task_id_(task_id), video_file_name_(video_file_name),
+    : order_id_(order_id), video_file_name_(video_file_name),
       object_name_(object_name), confidence_(confidence), interval_(interval),
       frame_idx_(start_frame_index), stop_infer_thread(false), fmtCtx(nullptr),
       video_stream_index(-1) {
@@ -73,10 +73,6 @@ void VideoProcessor::handleInferenceResult(
 }
 
 bool VideoProcessor::initialize() {
-  if (!init_rabbit_mq_client()) {
-    std::cerr << "Could not connect rabbit mq: " << std::endl;
-    std::exit(EXIT_FAILURE);
-  }
   setBatchSize();
   const char *video_file_path = video_file_name_.c_str();
   if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
