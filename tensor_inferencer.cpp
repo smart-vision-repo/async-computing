@@ -3,6 +3,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -144,14 +145,15 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
     std::cerr << "[错误] 未设置环境变量 YOLO_IMAGE_PATH。" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  image_output_path_ =
-      std::string(output_path_env) + "/" + std::to_string(task_id_);
+  // tensor_inferencer.cpp: Around lines 148-153
+  image_output_path_ = std::string(output_path_env) + "/" +
+                       std::to_string(task_id_); // Corrected line
   try {
-    if (!std::filesystem::exists(image_output_path_)) {
-      std::filesystem::create_directories(image_output_path_);
+    if (!std::filesystem::exists(image_output_path_)) {        //
+      std::filesystem::create_directories(image_output_path_); //
     }
   } catch (const std::filesystem::filesystem_error &e) {
-    std::cerr << "[错误] 创建目录失败: " << e.what() << std::endl;
+    std::cerr << "[错误] 创建目录失败: " << e.what() << std::endl; //
     std::exit(EXIT_FAILURE);
   }
 

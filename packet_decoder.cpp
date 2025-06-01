@@ -10,8 +10,9 @@ extern "C" {
 
 PacketDecoder::PacketDecoder(std::string video_file_name,
                              DecoderCallback callback)
-    : video_file_name(video_file_name), callback(callback), vidIdx(-1),
-      fmtCtx(nullptr), codec(nullptr), codecpar(nullptr), stopThreads(false) {
+    : video_file_name(video_file_name), vidIdx(-1), fmtCtx(nullptr),
+      codec(nullptr), codecpar(nullptr), stopThreads(false),
+      callback(callback) {
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize PacketDecoder");
   }
