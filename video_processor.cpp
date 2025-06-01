@@ -67,7 +67,7 @@ void VideoProcessor::handleInferenceResult(
     // Its correctness relies on TensorInferencer (including finalizeInference)
     // managing callbacks such that this accounting results in
     // pending_infer_tasks eventually reaching <= 0.
-    pending_infer_tasks -= BATCH_SIZE_;
+    pending_infer_tasks -= 1;
   }
   pending_infer_cv.notify_all();
 }
