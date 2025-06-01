@@ -67,7 +67,7 @@ void VideoProcessor::handleInferenceResult(
     // Its correctness relies on TensorInferencer (including finalizeInference)
     // managing callbacks such that this accounting results in
     // pending_infer_tasks eventually reaching <= 0.
-    pending_infer_tasks -= 1;
+    pending_infer_tasks -= BATCH_SIZE_
   }
   pending_infer_cv.notify_all();
 }
@@ -253,8 +253,7 @@ int VideoProcessor::process() {
   // Now wait until pending_infer_tasks is also 0
   // The lock is already held.
   task_cv.wait(lock, [this]() { // Reuse the same condition variable
-    std::cout << "\rWaiting for inference tasks: " << pending_infer_tasks.load()
-              << "   " << std::flush;
+    std::cout << "\rWaiting for inference tasks" << std::flush;
     return pending_infer_tasks.load() <= 0;
   });
 
