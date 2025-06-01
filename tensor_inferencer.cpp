@@ -23,7 +23,7 @@ using namespace nvinfer1;
 class TrtLogger : public ILogger {
   void log(Severity severity, const char *msg) noexcept override {
     if (severity <= Severity::kWARNING) {
-      std::cout << "[TRT] " << msg << std::endl;
+      // std::cout << "[TRT] " << msg << std::endl;
     }
   }
 };
