@@ -563,12 +563,6 @@ convert_to_rgb_and_normalize: // Common processing path for real (after
 void TensorInferencer::performBatchInference(bool pad_batch) {
   const int num_real_frames_in_queue =
       static_cast<int>(current_batch_raw_frames_.size());
-
-  std::cout << "[DEBUG_PerformBatch_Entry] num_real_frames_in_queue: "
-            << num_real_frames_in_queue
-            << ", BATCH_SIZE_ (member): " << this->BATCH_SIZE_
-            << ", pad_batch: " << (pad_batch ? "true" : "false") << std::endl;
-
   if (num_real_frames_in_queue == 0 && !pad_batch) {
     std::cout << "[DEBUG_PerformBatch] No real frames in queue and not "
                  "padding. Returning."
@@ -662,10 +656,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   Dims inputDimsRuntime{4, {trt_batch_size, 3, target_h_, target_w_}};
-  std::cout
-      << "[DEBUG_PerformBatch_PreSetDim] Attempting to set dimensions: NCHW=["
-      << trt_batch_size << "," << 3 << "," << target_h_ << "," << target_w_
-      << "]" << std::endl;
+
   if (!context_->setBindingDimensions(inputIndex_, inputDimsRuntime)) {
     std::cerr << "[错误] 设置批处理输入的绑定维度失败。" << std::endl;
     std::cerr << "[DEBUG_PerformBatch_SetDimFail] Failed with trt_batch_size: "
