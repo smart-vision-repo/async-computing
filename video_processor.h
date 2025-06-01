@@ -1,7 +1,7 @@
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
 #include "inference.hpp"
-#include "message_proxy.h"
+// #include "message_proxy.h"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
 // #include "yolo_inferencer.h"
@@ -68,7 +68,7 @@ private:
   int BATCH_SIZE_ = 1;
   InferenceCallback infer_callback;
   DecoderCallback docoder_callback;
-  MessageProxy proxy;
+  // MessageProxy proxy;
 };
 
 #endif // VIDEO_PROCESSOR_H
