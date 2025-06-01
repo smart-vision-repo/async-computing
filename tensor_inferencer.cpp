@@ -1135,15 +1135,15 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
   std::ostringstream filename_oss;
-  // filename_oss << image_output_path_ << "/frame" << std::setw(6)
-  //              << std::setfill('0') << image_meta.global_frame_index <<
-  //              "_time"
-  //              << std::fixed << std::setprecision(2) << timestamp_sec << "s"
-  //              << "_obj" << std::setw(2) << std::setfill('0')
-  //              << detection_idx_in_image << "_" << this->object_name_ <<
-  //              "_conf"
-  //              << static_cast<int>(det.confidence * 100) << ".jpg";
 
+  /**
+   * 文件名:
+   * 1. 全局帧位置
+   * 2. 预估时间
+   * 3. 置信率
+   * 4. 在GOP包中的位置
+   * 5. 检测对象名称
+   */
   filename_oss << image_output_path_ << std::setw(6) << std::setfill('0')
                << image_meta.global_frame_index << "_" << std::fixed
                << std::setprecision(2) << timestamp_sec << "_" << std::fixed
