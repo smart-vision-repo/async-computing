@@ -617,10 +617,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
                                             frames_to_preprocess_count);
   }
 
-  std::cout << "[DEBUG_PerformBatch_Calc] trt_batch_size: " << trt_batch_size
-            << ", frames_to_preprocess_count (real): "
-            << frames_to_preprocess_count << std::endl;
-
   if (trt_batch_size <=
       0) { // Should have been caught by BATCH_SIZE_ > 0 check in constructor
     std::cout << "[DEBUG_PerformBatch] trt_batch_size is <= 0. Returning."
