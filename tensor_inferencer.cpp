@@ -146,11 +146,13 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
   }
   image_output_path_ =
       std::string(output_path_env) + "/" + std::to_string(task_id_);
-  if (!std::filesystem::exists(image_output_path_)) {
-    if (!std::filesystem::create_directories(image_output_path_)) {
-      std::cerr << "[错误] 创建目录失败: " << image_output_path_ << std::endl;
-      std::exit(EXIT_FAILURE);
+  try {
+    if (!std::filesystem::exists(image_output_path_)) {
+      std::filesystem::create_directories(image_output_path_);
     }
+  } catch (const std::filesystem::filesystem_error &e) {
+    std::cerr << "[错误] 创建目录失败: " << e.what() << std::endl;
+    std::exit(EXIT_FAILURE);
   }
 
   auto engineData = readEngineFile(engine_path_);
