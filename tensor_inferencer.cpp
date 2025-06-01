@@ -616,7 +616,6 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
                                         current_batch_metadata_.begin() +
                                             frames_to_preprocess_count);
   }
-
   if (trt_batch_size <=
       0) { // Should have been caught by BATCH_SIZE_ > 0 check in constructor
     std::cout << "[DEBUG_PerformBatch] trt_batch_size is <= 0. Returning."
@@ -1136,14 +1135,22 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
   std::ostringstream filename_oss;
-  filename_oss << image_output_path_ << "/frame" << std::setw(6)
-               << std::setfill('0') << image_meta.global_frame_index << "_time"
-               << std::fixed << std::setprecision(2) << timestamp_sec << "s"
-               << "_obj" << std::setw(2) << std::setfill('0')
-               << detection_idx_in_image << "_" << this->object_name_ << "_conf"
-               << static_cast<int>(det.confidence * 100) << ".jpg";
-  //
-  //
+  // filename_oss << image_output_path_ << "/frame" << std::setw(6)
+  //              << std::setfill('0') << image_meta.global_frame_index <<
+  //              "_time"
+  //              << std::fixed << std::setprecision(2) << timestamp_sec << "s"
+  //              << "_obj" << std::setw(2) << std::setfill('0')
+  //              << detection_idx_in_image << "_" << this->object_name_ <<
+  //              "_conf"
+  //              << static_cast<int>(det.confidence * 100) << ".jpg";
+
+  filename_oss << image_output_path_ << std::setw(6) << std::setfill('0')
+               << image_meta.global_frame_index << "_" << std::fixed
+               << std::setprecision(2) << timestamp_sec << "_" << std::fixed
+               << std::setprecision(2) << det.confidence * 100 << "_"
+               << std::setw(2) << std::setfill('0') << detection_idx_in_image
+               << "_" << this->object_name_ << ".jpg";
+
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (!success) {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
