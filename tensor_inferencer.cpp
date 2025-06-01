@@ -1148,7 +1148,8 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
                << "_obj" << std::setw(2) << std::setfill('0')
                << detection_idx_in_image << "_" << this->object_name_ << "_conf"
                << static_cast<int>(det.confidence * 100) << ".jpg";
-
+  //
+  //
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (!success) {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
