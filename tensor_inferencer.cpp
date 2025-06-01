@@ -281,12 +281,14 @@ void TensorInferencer::printEngineInfo() {
   std::cout << "绑定数量: " << engine_->getNbBindings() << std::endl;
   std::cout << "优化配置文件数量: " << engine_->getNbOptimizationProfiles()
             << std::endl;
+
   for (int i = 0; i < engine_->getNbBindings(); ++i) {
     const char *name = engine_->getBindingName(i);
-    Dims dims_ctx = context_->getBindingDimensions(
-        i); // Dimensions for current context (after setBindingDimensions)
+    Dims dims_ctx =
+        context_->getBindingDimensions(i); // 需要在 setBindingDimensions 后调用
     nvinfer1::DataType dtype = engine_->getBindingDataType(i);
     bool isInput = engine_->bindingIsInput(i);
+
     std::string dtype_str;
     switch (dtype) {
     case nvinfer1::DataType::kFLOAT:
@@ -305,6 +307,7 @@ void TensorInferencer::printEngineInfo() {
       dtype_str = "未知";
       break;
     }
+
     std::cout << "绑定 " << i << ": '" << name << "' ("
               << (isInput ? "输入" : "输出") << ") - 类型: " << dtype_str
               << " - 当前上下文维度: ";
@@ -313,16 +316,17 @@ void TensorInferencer::printEngineInfo() {
     }
     std::cout << std::endl;
 
-    if (engine_->getNbOptimizationProfiles() > 0) {
+    // ✅ 只对输入 binding 打印 profile 信息
+    if (isInput && engine_->getNbOptimizationProfiles() > 0) {
       for (int p = 0; p < engine_->getNbOptimizationProfiles(); ++p) {
-        // Get specific profile dimensions, not from context
-        Dims min_dims = engine_->getProfileDimensions(
-            engine_->getBindingIndex(name), p, OptProfileSelector::kMIN);
-        Dims opt_dims = engine_->getProfileDimensions(
-            engine_->getBindingIndex(name), p, OptProfileSelector::kOPT);
-        Dims max_dims = engine_->getProfileDimensions(
-            engine_->getBindingIndex(name), p, OptProfileSelector::kMAX);
-        if (min_dims.nbDims > 0) { // Check if dimensions are valid
+        Dims min_dims =
+            engine_->getProfileDimensions(i, p, OptProfileSelector::kMIN);
+        Dims opt_dims =
+            engine_->getProfileDimensions(i, p, OptProfileSelector::kOPT);
+        Dims max_dims =
+            engine_->getProfileDimensions(i, p, OptProfileSelector::kMAX);
+
+        if (min_dims.nbDims > 0) {
           std::cout << "  Profile " << p << " for '" << name << "': MIN[";
           for (int k = 0; k < min_dims.nbDims; ++k)
             std::cout << min_dims.d[k] << (k < min_dims.nbDims - 1 ? "," : "");
@@ -337,6 +341,7 @@ void TensorInferencer::printEngineInfo() {
       }
     }
   }
+
   std::cout << "===================" << std::endl;
 }
 
