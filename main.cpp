@@ -19,18 +19,6 @@ bool validateArguments(int argc, char *argv[]) {
     usage(argv[0]);
     return false;
   }
-
-  try {
-    int order_id = std::stof(argv[1]);
-    if (argv[1][0] == '\0' || argv[2][0] == '\0' || confidence <= 0.0f ||
-        confidence >= 1.0f || interval <= 0) {
-      usage(argv[0]);
-      return false;
-    }
-  } catch (const std::exception &e) {
-    usage(argv[0]);
-    return false;
-  }
   return true;
 }
 
