@@ -54,6 +54,7 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   loadEnvFile();
+  int idx = 0;
   int task_id = std::stoi(argv[++idx]);
   std::string video_file_name = argv[++idx];
   std::string object_name = argv[++idx];
