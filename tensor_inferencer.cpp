@@ -1158,7 +1158,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
    * 5. 检测对象名称
    */
   filename_oss << image_output_path_ << "/" << std::setprecision(0)
-               << image_meta.global_frame_index << "_" << std::setprecision(0)
+               << image_meta.global_frame_index << "_" << std::setprecision(4)
                << det.confidence * 10000 << ".jpg";
 
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
