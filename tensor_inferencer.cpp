@@ -539,18 +539,20 @@ convert_to_rgb_and_normalize: // Common processing path for real (after
   cv::cuda::split(gpu_float_hwc, gpu_planes);
 
   int plane_size_elements = model_input_h * model_input_w;
-  gpu_planes[0]
-      .reshape(1, plane_size_elements)
-      .copyTo(
-          chw_planar_output_gpu_buffer_slice.colRange(0, plane_size_elements));
-  gpu_planes[1]
-      .reshape(1, plane_size_elements)
-      .copyTo(chw_planar_output_gpu_buffer_slice.colRange(
-          plane_size_elements, 2 * plane_size_elements));
-  gpu_planes[2]
-      .reshape(1, plane_size_elements)
-      .copyTo(chw_planar_output_gpu_buffer_slice.colRange(
-          2 * plane_size_elements, 3 * plane_size_elements));
+  cv::cuda::GpuMat chw_output_temp(1, plane_size_elements * 3, CV_32F);
+
+  // 使用临时 GpuMat 拼接 3 个通道到 chw 格式中
+  gpu_planes[0].reshape(1, 1).copyTo(
+      chw_output_temp.colRange(0, plane_size_elements));
+  gpu_planes[1].reshape(1, 1).copyTo(
+      chw_output_temp.colRange(plane_size_elements, 2 * plane_size_elements));
+  gpu_planes[2].reshape(1, 1).copyTo(chw_output_temp.colRange(
+      2 * plane_size_elements, 3 * plane_size_elements));
+
+  // 将数据从临时 GpuMat 拷贝到 TensorRT 指定的显存区域
+  cudaMemcpy(chw_planar_output_gpu_buffer_slice.ptr<float>(),
+             chw_output_temp.ptr<float>(),
+             plane_size_elements * 3 * sizeof(float), cudaMemcpyDeviceToDevice);
 }
 
 void TensorInferencer::performBatchInference(bool pad_batch) {
