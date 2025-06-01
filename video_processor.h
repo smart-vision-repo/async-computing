@@ -53,7 +53,6 @@ private:
   std::atomic<bool> stop_infer_thread;
   // YoloInferencer inferencer;
   std::optional<PacketDecoder> decoder;
-  std::optional<MessageProxy> msgProxy;
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
