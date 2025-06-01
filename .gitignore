@@ -25,6 +25,10 @@
 *.log
 *.tmp
 *.txt
+*.zip
+*.tar.gz
+*.tar
+*.gz
 
 # ----- 构建目录 -----
 build/
