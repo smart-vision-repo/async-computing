@@ -144,7 +144,8 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
     std::cerr << "[错误] 未设置环境变量 YOLO_IMAGE_PATH。" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  image_output_path_ = output_path_env + "/" + std::to_string(task_id_);
+  image_output_path_ =
+      std::string(output_path_env) + "/" + std::to_string(task_id_);
   if (!std::filesystem::exists(image_output_path_)) {
     if (!std::filesystem::create_directories(image_output_path_)) {
       std::cerr << "[错误] 创建目录失败: " << image_output_path_ << std::endl;
