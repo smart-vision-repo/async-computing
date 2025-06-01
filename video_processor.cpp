@@ -307,11 +307,11 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
                                     // valid but unspecified state
     input.latest_frame_index = gopId;
     tensor_inferencer->infer(input);
-    // {
-    //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    //   pending_infer_tasks++;
-    // }
-    // pending_infer_cv.notify_all();
+    {
+      std::lock_guard<std::mutex> lock(pending_infer_mutex);
+      pending_infer_tasks++;
+    }
+    pending_infer_cv.notify_all();
   }
 
   {
