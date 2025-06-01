@@ -5,21 +5,23 @@
 #include <iostream>
 #include <sstream>
 
-void usage(const char *program_name){
-    std::cerr
-    << "Usage: " << program_name
-    << " <order_id> <video_file_name> <object_name> <confidence> <interval>\n"
-    << "  - order_id: non-empty number\n"
-    << "  - video_file_name: non-empty string\n"
-    << "  - object_name: non-empty string\n"}
+void usage(const char *program_name) {
+  std::cerr
+      << "Usage: " << program_name
+      << " <order_id> <video_file_name> <object_name> <confidence> <interval>\n"
+      << "  - order_id: non-empty number\n"
+      << "  - video_file_name: non-empty string\n"
+      << "  - object_name: non-empty string\n"
 
-bool validateArguments(int argc, char *argv[]) {
-  std::cout << argc << std::endl;
-  if (argc != 4) {
-    usage(argv[0]);
-    return false;
+      bool
+      validateArguments(int argc, char *argv[]) {
+    std::cout << argc << std::endl;
+    if (argc != 4) {
+      usage(argv[0]);
+      return false;
+    }
+    return true;
   }
-  return true;
 }
 
 void loadEnvFile() {
