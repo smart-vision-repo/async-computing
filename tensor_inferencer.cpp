@@ -774,9 +774,13 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
 
     float *current_input_slice_ptr =
         reinterpret_cast<float *>(inputDevice_) + i * single_image_elements;
-    cv::cuda::GpuMat chw_output_slice_gpu_wrapper(
-        1, static_cast<int>(single_image_elements), CV_32F,
-        current_input_slice_ptr);
+    // cv::cuda::GpuMat chw_output_slice_gpu_wrapper(
+    //     1, static_cast<int>(single_image_elements), CV_32F,
+    //     current_input_slice_ptr);
+    cv::cuda::GpuMat temp_gpu_mat(model_input_h * model_input_w * 3, 1, CV_32F);
+    preprocess_single_image_for_batch(..., temp_gpu_mat);
+    cudaMemcpy(current_input_slice_ptr, temp_gpu_mat.ptr<float>(),
+               single_image_elements * sizeof(float), cudaMemcpyDeviceToDevice);
 
     preprocess_single_image_for_batch(
         current_raw_img_for_preprocessing_cpu, temp_metadata_for_this_batch[i],
