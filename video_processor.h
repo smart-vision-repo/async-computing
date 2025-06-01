@@ -1,6 +1,7 @@
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
 #include "inference.hpp"
+#include "message_proxy.h"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
 // #include "yolo_inferencer.h"
@@ -17,9 +18,9 @@ extern "C" {
 // 声明 VideoProcessor 类
 class VideoProcessor {
 public:
-  VideoProcessor(const std::string &video_file_name,
-                 const std::string &object_name, float confidence,
-                 int interval);
+  VideoProcessor(int order_id, const std::string &video_file_name,
+                 const std::string &object_name, float confidence, int interval,
+                 int start_frame_index);
   ~VideoProcessor();
   int process();
 
@@ -35,10 +36,12 @@ private:
 
   void setBatchSize();
   void clear_av_packets(std::vector<AVPacket *> *packages);
-  std::string video_file_name;
-  std::string object_name;
-  float confidence;
-  int interval;
+  std::string order_id_;
+  std::string video_file_name_;
+  std::string object_name_;
+  float confidence_;
+  int interval_;
+  int frame_idx_ = 0;
   std::queue<InferenceInput>
       infer_inputs; // This member seems unused in the provided logic. Consider
                     // removing if not needed.
@@ -50,6 +53,7 @@ private:
   std::atomic<bool> stop_infer_thread;
   // YoloInferencer inferencer;
   std::optional<PacketDecoder> decoder;
+  std::optional<MessageProxy> msgProxy;
   std::optional<TensorInferencer>
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
@@ -64,6 +68,7 @@ private:
   int BATCH_SIZE_ = 1;
   InferenceCallback infer_callback;
   DecoderCallback docoder_callback;
+  MessageProxy proxy;
 };
 
 #endif // VIDEO_PROCESSOR_H

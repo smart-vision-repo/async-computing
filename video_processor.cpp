@@ -45,12 +45,13 @@ VideoProcessor::~VideoProcessor() {
   }
 }
 
-VideoProcessor::VideoProcessor(const std::string &video_file_name,
+VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
                                const std::string &object_name, float confidence,
-                               int interval)
-    : video_file_name(video_file_name), object_name(object_name),
-      confidence(confidence), interval(interval), stop_infer_thread(false),
-      fmtCtx(nullptr), video_stream_index(-1) {
+                               int interval, int start_frame_index)
+    : order_id_(order_id), video_file_name_(video_file_name),
+      object_name_(object_name), confidence_(confidence), interval_(interval),
+      frame_idx_(start_frame_index), stop_infer_thread(false), fmtCtx(nullptr),
+      video_stream_index(-1) {
 
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
@@ -72,8 +73,12 @@ void VideoProcessor::handleInferenceResult(
 }
 
 bool VideoProcessor::initialize() {
+  if (!init_rabbit_mq_client()) {
+    std::cerr << "Could not connect rabbit mq: " << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
   setBatchSize();
-  const char *video_file_path = video_file_name.c_str();
+  const char *video_file_path = video_file_name_.c_str();
   if (avformat_open_input(&fmtCtx, video_file_path, nullptr, nullptr) < 0) {
     std::cerr << "Could not open video file: " << video_file_path << std::endl;
     return false;
@@ -115,16 +120,16 @@ bool VideoProcessor::initialize() {
     this->onDecoded(frames, gopId);
   };
   decoder.emplace(
-      video_file_name,
+      video_file_name_,
       docoder_callback); // Assuming PacketDecoder constructor matches
 
   infer_callback = [this](const std::vector<InferenceResult> &result) {
     this->handleInferenceResult(result);
   };
   tensor_inferencer.emplace(
-      frame_heigh, frame_width, object_name,
-      interval, // Assuming TensorInferencer constructor matches
-      confidence, infer_callback);
+      frame_heigh, frame_width, object_name_,
+      interval_, // Assuming TensorInferencer constructor matches
+      confidence_, infer_callback);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
@@ -138,7 +143,7 @@ int VideoProcessor::process() {
     return -1;
   }
 
-  int frame_idx = 0, gop_idx = 0, frame_idx_in_gop = 0;
+  gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
   int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
       total_packages = 0; // total_packages seems to be only updated once, for
@@ -148,8 +153,8 @@ int VideoProcessor::process() {
 
   while (av_read_frame(fmtCtx, packet) >= 0) {
     if (packet->stream_index == video_stream_index) {
-      frame_idx++;
-      if (frame_idx > 1 && (frame_idx - 1) % interval == 0) {
+      frame_idx_++;
+      if (frame_idx_ > 1 && (frame_idx_ - 1) % interval_ == 0) {
         hits++;
       }
       bool is_key_frame = (packet->flags & AV_PKT_FLAG_KEY);
@@ -157,16 +162,16 @@ int VideoProcessor::process() {
         int last_frame_in_gop = 0; // To be calculated
         if (hits > 0) {
           skipped_frames += pool;
-          last_frame_in_gop = hits * interval - pool;
+          last_frame_in_gop = hits * interval_ - pool;
           if (last_frame_in_gop > 0) {
             decoded_frames += last_frame_in_gop; // Statistical count
             std::vector<AVPacket *> decoding_pkts =
                 get_packets_for_decoding(pkts, last_frame_in_gop);
             if (!decoding_pkts.empty()) {
               decoder->decode(
-                  decoding_pkts, interval,
-                  frame_idx); // frame_idx here is latest_frame_index in GOP for
-                              // context
+                  decoding_pkts, interval_,
+                  frame_idx_); // frame_idx here is latest_frame_index in GOP
+                               // for context
               {
                 std::lock_guard<std::mutex> lock(task_mutex);
                 remaining_decode_tasks++;
@@ -207,13 +212,13 @@ int VideoProcessor::process() {
   // Process the last GOP (remaining packets)
   int last_frame_in_gop = 0;
   if (hits > 0) {
-    last_frame_in_gop = hits * interval - pool;
+    last_frame_in_gop = hits * interval_ - pool;
     if (last_frame_in_gop > 0) {
       std::vector<AVPacket *> decoding_pkts =
           get_packets_for_decoding(pkts, last_frame_in_gop);
       if (!decoding_pkts.empty()) {
-        decoder->decode(decoding_pkts, interval,
-                        frame_idx); // frame_idx is total frames read
+        decoder->decode(decoding_pkts, interval_,
+                        frame_idx_); // frame_idx is total frames read
         {
           std::lock_guard<std::mutex> lock(task_mutex);
           remaining_decode_tasks++;
@@ -274,19 +279,19 @@ int VideoProcessor::process() {
 
   std::cout << "-------------------" << std::endl;
   float percentage =
-      (frame_idx > 0)
-          ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx)
+      (frame_idx_ > 0)
+          ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx_)
           : 0.0f;
   std::cout
       << "Total GOPs processed: " << gop_idx << std::endl
-      << "Interval: " << interval << std::endl
+      << "Interval: " << interval_ << std::endl
       << "Total packages for last segment processing: " << total_packages
       << std::endl // Clarified meaning
       << "Frames submitted for decoding (estimate): " << decoded_frames
       << std::endl
       << "Frames skipped by selection logic: " << skipped_frames << std::endl
       << "Discrepancy (Total read - submitted for decode - skipped by logic): "
-      << (frame_idx - decoded_frames - skipped_frames) << std::endl
+      << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
       << "Percentage of frames submitted for decoding from total read: "
       << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
       << "Successfully decoded frames (from callbacks): "

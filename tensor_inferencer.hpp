@@ -47,8 +47,9 @@ using InferenceCallback =
 
 class TensorInferencer {
 public:
-  TensorInferencer(int video_height, int video_width, std::string object_name,
-                   int interval, float confidence, InferenceCallback callback);
+  TensorInferencer(int order_id, int video_height, int video_width,
+                   std::string object_name, int interval, float confidence,
+                   InferenceCallback callback);
   ~TensorInferencer();
 
   bool infer(const InferenceInput &input);
@@ -56,6 +57,7 @@ public:
 
 private:
   // Configuration parameters
+  int order_id_;
   std::string object_name_;
   int interval_;
   float confidence_;
