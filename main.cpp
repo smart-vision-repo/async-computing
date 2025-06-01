@@ -60,6 +60,6 @@ int main(int argc, char *argv[]) {
   std::string object_name = argv[++idx];
   // float confidence = std::stof(argv[++idx]);
   // interval = std::stoi(argv[++idx]);
-  VideoProcessor processor(task_id, video_file_name, object_name, 0.5f, 30, 0);
+  VideoProcessor processor(task_id, video_file_name, object_name, 0.4f, 30, 0);
   return processor.process();
 }
