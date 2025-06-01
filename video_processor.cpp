@@ -48,7 +48,7 @@ VideoProcessor::~VideoProcessor() {
 VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
                                const std::string &object_name, float confidence,
                                int interval, int start_frame_index)
-    : order_id_(order_id), video_file_name_(video_file_name),
+    : task_id_(order_id), video_file_name_(video_file_name),
       object_name_(object_name), confidence_(confidence), interval_(interval),
       frame_idx_(start_frame_index), stop_infer_thread(false), fmtCtx(nullptr),
       video_stream_index(-1) {
@@ -123,7 +123,7 @@ bool VideoProcessor::initialize() {
     this->handleInferenceResult(result);
   };
   tensor_inferencer.emplace(
-      frame_heigh, frame_width, object_name_,
+      task_id_, frame_heigh, frame_width, object_name_,
       interval_, // Assuming TensorInferencer constructor matches
       confidence_, infer_callback);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
