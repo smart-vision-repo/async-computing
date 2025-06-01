@@ -36,7 +36,7 @@ private:
 
   void setBatchSize();
   void clear_av_packets(std::vector<AVPacket *> *packages);
-  std::string task_id_;
+  int task_id_;
   std::string video_file_name_;
   std::string object_name_;
   float confidence_;
