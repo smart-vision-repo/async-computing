@@ -898,25 +898,20 @@ void TensorInferencer::process_single_output(
     const float *det_attrs = &transposed_output[static_cast<size_t>(i) *
                                                 num_attributes_per_detection];
 
-    float max_score = 0.0f;
-    int best_class_id = -1;
-    if (4 + num_classes_ > num_attributes_per_detection) {
+    if (4 + target_class_id >= num_attributes_per_detection) {
       std::cerr << "[错误][ProcessOutput] (Frame: "
-                << image_meta.global_frame_index << ") Attribute count "
-                << num_attributes_per_detection << " too small for "
-                << num_classes_ << " classes (needs at least "
-                << 4 + num_classes_ << ")." << std::endl;
-      break;
-    }
-    for (int j = 0; j < num_classes_; ++j) {
-      float score = det_attrs[4 + j];
-      if (score > max_score) {
-        max_score = score;
-        best_class_id = j;
-      }
+                << image_meta.global_frame_index
+                << ") Output does not contain score for class ID "
+                << target_class_id
+                << ". Attribute count: " << num_attributes_per_detection
+                << std::endl;
+      continue;
     }
 
-    if (best_class_id == target_class_id && max_score >= confidence_threshold) {
+    float score_for_target = det_attrs[4 + target_class_id];
+
+    if (score_for_target >= confidence_threshold) {
+
       if (3 >= num_attributes_per_detection) {
         std::cerr << "[错误][ProcessOutput] (Frame: "
                   << image_meta.global_frame_index << ") Attribute count "
