@@ -911,15 +911,6 @@ void TensorInferencer::process_single_output(
     float score_for_target = det_attrs[4 + target_class_id];
 
     if (score_for_target >= confidence_threshold) {
-
-      if (3 >= num_attributes_per_detection) {
-        std::cerr << "[错误][ProcessOutput] (Frame: "
-                  << image_meta.global_frame_index << ") Attribute count "
-                  << num_attributes_per_detection
-                  << " too small for coordinates (needs at least 4)."
-                  << std::endl;
-        continue;
-      }
       float cx = det_attrs[0];
       float cy = det_attrs[1];
       float w = det_attrs[2];
@@ -932,7 +923,7 @@ void TensorInferencer::process_single_output(
           std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
       if (x2_model > x1_model && y2_model > y1_model) {
         detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
-                                    max_score, best_class_id,
+                                    score_for_target, target_class_id,
                                     original_batch_idx_for_debug,
                                     image_meta.is_real_image ? "REAL" : "PAD"});
       }
@@ -940,7 +931,6 @@ void TensorInferencer::process_single_output(
   }
 
   std::vector<Detection> nms_detections = applyNMS(detected_objects, 0.45f);
-
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
