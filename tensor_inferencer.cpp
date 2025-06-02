@@ -856,6 +856,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 }
 
+// 修改后的 process_single_output：支持多类检测，但只保留目标类的结果
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
@@ -877,40 +878,24 @@ void TensorInferencer::process_single_output(
     }
   }
 
-  auto it = class_name_to_id_.find(this->object_name_);
-  if (it == class_name_to_id_.end()) {
-    std::cerr << "[错误][ProcessOutput] (Frame: "
-              << image_meta.global_frame_index << ") 目标对象名称 '"
-              << this->object_name_ << "' 在类别名称中未找到。" << std::endl;
-    InferenceResult res;
-    res.info = "Error for Frame " +
-               std::to_string(image_meta.global_frame_index) +
-               ": Target object name '" + this->object_name_ +
-               "' not found in class names.";
-    frame_results.push_back(res);
-    return;
-  }
-  int target_class_id = it->second;
   float confidence_threshold = this->confidence_;
-
   std::vector<Detection> detected_objects;
+
   for (int i = 0; i < num_detections_in_slice; ++i) {
     const float *det_attrs = &transposed_output[static_cast<size_t>(i) *
                                                 num_attributes_per_detection];
 
-    if (4 + target_class_id >= num_attributes_per_detection) {
-      std::cerr << "[错误][ProcessOutput] (Frame: "
-                << image_meta.global_frame_index
-                << ") Output does not contain score for class ID "
-                << target_class_id
-                << ". Attribute count: " << num_attributes_per_detection
-                << std::endl;
-      continue;
+    float max_score = -1.0f;
+    int best_class_id = -1;
+    for (int j = 0; j < num_classes_; ++j) {
+      float score = det_attrs[4 + j];
+      if (score > max_score) {
+        max_score = score;
+        best_class_id = j;
+      }
     }
 
-    float score_for_target = det_attrs[4 + target_class_id];
-
-    if (score_for_target >= confidence_threshold) {
+    if (max_score >= confidence_threshold) {
       float cx = det_attrs[0];
       float cy = det_attrs[1];
       float w = det_attrs[2];
@@ -921,16 +906,34 @@ void TensorInferencer::process_single_output(
           std::min(static_cast<float>(target_w_ - 1), cx + w / 2.0f);
       float y2_model =
           std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
+
       if (x2_model > x1_model && y2_model > y1_model) {
         detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
-                                    score_for_target, target_class_id,
+                                    max_score, best_class_id,
                                     original_batch_idx_for_debug,
                                     image_meta.is_real_image ? "REAL" : "PAD"});
       }
     }
   }
 
-  std::vector<Detection> nms_detections = applyNMS(detected_objects, 0.45f);
+  // 执行 class-wise NMS，并只保留目标类别的检测结果
+  auto it = class_name_to_id_.find(this->object_name_);
+  if (it == class_name_to_id_.end()) {
+    std::cerr << "[错误][ProcessOutput] (Frame: "
+              << image_meta.global_frame_index << ") 目标对象名称 '"
+              << this->object_name_ << "' 在类别名称中未找到。" << std::endl;
+    return;
+  }
+  int target_class_id = it->second;
+
+  std::vector<Detection> filtered;
+  for (const auto &d : detected_objects) {
+    if (d.class_id == target_class_id) {
+      filtered.push_back(d);
+    }
+  }
+  std::vector<Detection> nms_detections = applyNMS(filtered, 0.45f);
+
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
