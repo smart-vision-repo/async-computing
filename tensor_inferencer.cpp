@@ -856,7 +856,8 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 }
 
-// 修改后的 process_single_output：支持多类检测，但只保留目标类的结果
+// 修改后的
+// process_single_output：支持多类检测，但只保留目标类的结果，并打印每个检测框的预测类别和得分
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
@@ -894,6 +895,13 @@ void TensorInferencer::process_single_output(
         best_class_id = j;
       }
     }
+
+    // 打印每个候选框的最大类别和得分
+    std::cout << "[调试][DetectionCandidate] Frame "
+              << image_meta.global_frame_index << " Box " << i
+              << ": class_id=" << best_class_id << " ("
+              << id_to_class_name_[best_class_id] << "), score=" << std::fixed
+              << std::setprecision(4) << max_score << std::endl;
 
     if (max_score >= confidence_threshold) {
       float cx = det_attrs[0];
