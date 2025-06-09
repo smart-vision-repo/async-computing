@@ -1,7 +1,6 @@
 #pragma once
 
 #include "NvInfer.h"
-#include "message_proxy.h"
 #include "models.hpp" // Contains InferenceInput and InferenceResult
 #include <functional> // For std::function
 #include <map>
@@ -51,7 +50,7 @@ public:
   TensorInferencer(int task_id, int video_height, int video_width,
                    std::string object_name, int interval, float confidence,
                    InferResultCallback resultCallback,
-                   InferPackCallback packCallback);
+                   InferPackCallback packCallback, );
   ~TensorInferencer();
 
   bool infer(const InferenceInput &input);
@@ -116,7 +115,9 @@ private:
   void process_single_output(const BatchImageMetadata &image_meta,
                              const float *host_output_for_image_raw,
                              int num_detections_in_slice,
-                             int num_attributes_per_detection);
+                             int num_attributes_per_detection,
+                             int original_batch_idx_for_debug,
+                             std::vector<InferenceResult> &frame_results);
   std::vector<Detection> applyNMS(const std::vector<Detection> &detections,
                                   float iou_threshold);
   float calculateIoU(const Detection &a, const Detection &b);
