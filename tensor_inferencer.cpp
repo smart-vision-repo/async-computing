@@ -56,7 +56,8 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    int video_width, std::string object_name,
                                    int interval, float confidence,
                                    InferResultCallback reusltCallback,
-                                   InferPackCallback packCallback)
+                                   InferPackCallback packCallback,
+                                   const MessageProxy &)
     : // Initializer list order matches declaration order in .hpp
       task_id_(task_id), object_name_(object_name), interval_(interval),
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
@@ -753,7 +754,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     cv::Mat current_raw_img_for_preprocessing_cpu;
     if (temp_metadata_for_this_batch[i].is_real_image) {
       if (i < frames_to_preprocess_count) {
-        / current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
+        current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
       } else {
         std::cerr
             << "[错误_PerformBatch_PreprocLoop] Metadata at TRT batch slot "
