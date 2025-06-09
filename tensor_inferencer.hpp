@@ -116,8 +116,7 @@ private:
   void process_single_output(const BatchImageMetadata &image_meta,
                              const float *host_output_for_image_raw,
                              int num_detections_in_slice,
-                             int num_attributes_per_detection,
-                             int original_batch_idx_for_debug);
+                             int num_attributes_per_detection);
   std::vector<Detection> applyNMS(const std::vector<Detection> &detections,
                                   float iou_threshold);
   float calculateIoU(const Detection &a, const Detection &b);
