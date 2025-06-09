@@ -12,6 +12,8 @@ MessageProxy::MessageProxy() {
   exchange_ = std::getenv("RABBITMQ_EXCHANGE") ?: "";
   result_queue_ = std::getenv("RABBITMQ_RESULT_QUEUE") ?: "";
   notify_queue_ = std::getenv("RABBITMQ_NOTIFIY_QUEUE") ?: "";
+  result_routing_key_ = std::getenv("RABBITMQ_RESULT_ROUTING_KEY") ?: "";
+  notify_routing_key_ = std::getenv("RABBITMQ_NOTIFIY_ROUTING_KEY") ?: "";
 
   channel_ =
       AmqpClient::Channel::Create(host_, port_, user_, password_, vhost_);
@@ -22,13 +24,13 @@ MessageProxy::MessageProxy() {
 void MessageProxy::sendNotificationMessage(const std::string &message) {
   AmqpClient::BasicMessage::ptr_t msg =
       AmqpClient::BasicMessage::Create(message);
-  channel_->BasicPublish("", result_queue_, msg);
+  channel_->BasicPublish("", notify_routing_key_, msg);
 }
 
 void MessageProxy::sendInferResultMessage(const std::string &message) {
   AmqpClient::BasicMessage::ptr_t msg =
       AmqpClient::BasicMessage::Create(message);
-  channel_->BasicPublish("", notify_queue_, msg);
+  channel_->BasicPublish("", result_routing_key_, msg);
 }
 
 void MessageProxy::sendInferPackInfo(const TaskInferInfo &info) {

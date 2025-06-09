@@ -20,6 +20,9 @@ private:
   std::string exchange_;
   std::string result_queue_;
   std::string notify_queue_;
+  std::string notify_routing_key_;
+  std::string result_routing_key_;
+
   AmqpClient::Channel::ptr_t channel_;
   void sendNotificationMessage(const std::string &message);
   void sendInferResultMessage(const std::string &message);
