@@ -1,4 +1,5 @@
 #include "video_processor.h"
+#include "models.hpp"
 #include "tensor_inferencer.hpp"
 // #include "yolo_inferencer.h"
 
@@ -47,11 +48,12 @@ VideoProcessor::~VideoProcessor() {
 
 VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
                                const std::string &object_name, float confidence,
-                               int interval, int start_frame_index)
+                               int interval, int start_frame_index,
+                               const MessageProxy &messageProxy)
     : task_id_(order_id), video_file_name_(video_file_name),
       object_name_(object_name), confidence_(confidence), interval_(interval),
       frame_idx_(start_frame_index), stop_infer_thread(false), fmtCtx(nullptr),
-      video_stream_index(-1) {
+      video_stream_index(-1), messageProxy_(messageProxy) {
 
   if (!initialize()) {
     throw std::runtime_error("Failed to initialize video processor");
@@ -297,7 +299,7 @@ int VideoProcessor::process() {
 }
 
 void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
-                               int gopId) { // Renamed param for clarity
+                               int gFrameIdx) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
@@ -305,7 +307,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
     input.decoded_frames =
         std::move(received_frames); // 'received_frames' is now empty or in a
                                     // valid but unspecified state
-    input.latest_frame_index = gopId;
+    input.latest_frame_index = gFrameIdx;
     tensor_inferencer->infer(input);
     {
       std::lock_guard<std::mutex> lock(pending_infer_mutex);
@@ -322,6 +324,12 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
   }
+
+  TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+  taskDecodeInfo.taskId = task_id_;
+  taskDecodeInfo.decoded_frames = total_decoded_frames;
+  taskDecodeInfo.remain_frames = remaining_decode_tasks;
+
   task_cv.notify_all();
 }
 

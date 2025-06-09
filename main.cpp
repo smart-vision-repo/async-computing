@@ -58,8 +58,8 @@ int main(int argc, char *argv[]) {
   int task_id = std::stoi(argv[++idx]);
   std::string video_file_name = argv[++idx];
   std::string object_name = argv[++idx];
-  // float confidence = std::stof(argv[++idx]);
-  // interval = std::stoi(argv[++idx]);
-  VideoProcessor processor(task_id, video_file_name, object_name, 0.5f, 30, 0);
+  MessageProxy proxy;
+  VideoProcessor processor(task_id, video_file_name, object_name, 0.4f, 30, 0,
+                           proxy);
   return processor.process();
 }

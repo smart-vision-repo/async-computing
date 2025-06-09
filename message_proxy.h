@@ -1,4 +1,5 @@
 #pragma once
+#include "models.hpp"
 #include <SimpleAmqpClient/SimpleAmqpClient.h>
 #include <memory>
 #include <string>
@@ -6,9 +7,9 @@
 class MessageProxy {
 public:
   MessageProxy();
-  void publishMessage(const std::string &message);
-  void sendQueueMessage(const std::string &queue_name,
-                        const std::string &message);
+  void sendInferResultMessage(const InferenceResult &message);
+  void sendDecodeInfo(const TaskDecodeInfo &message);
+  void sendInferInfo(const TaskInferInfo &message);
 
 private:
   std::string host_;
@@ -18,6 +19,7 @@ private:
   std::string vhost_;
   std::string exchange_;
   std::string routing_key_;
-
+  std::string queue_;
   AmqpClient::Channel::ptr_t channel_;
+  void sendMessage(const std::string &message);
 };

@@ -1,8 +1,8 @@
 #pragma once
 
 #include "NvInfer.h"
-#include "inference.hpp" // Contains InferenceInput and InferenceResult
-#include <functional>    // For std::function
+#include "models.hpp" // Contains InferenceInput and InferenceResult
+#include <functional> // For std::function
 #include <map>
 #include <mutex>                 // For thread safety
 #include <opencv2/core/cuda.hpp> // For cv::cuda::GpuMat

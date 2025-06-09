@@ -1,7 +1,6 @@
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
-#include "inference.hpp"
-// #include "message_proxy.h"
+#include "models.hpp"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
 // #include "yolo_inferencer.h"
@@ -20,7 +19,7 @@ class VideoProcessor {
 public:
   VideoProcessor(int task_id, const std::string &video_file_name,
                  const std::string &object_name, float confidence, int interval,
-                 int start_frame_index);
+                 int start_frame_index, const MessageProxy &messageProxy);
   ~VideoProcessor();
   int process();
 
@@ -67,7 +66,7 @@ private:
   int BATCH_SIZE_ = 1;
   InferenceCallback infer_callback;
   DecoderCallback docoder_callback;
-  // MessageProxy proxy;
+  MessageProxy &messageProxy_;
 };
 
 #endif // VIDEO_PROCESSOR_H

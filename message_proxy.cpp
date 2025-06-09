@@ -11,6 +11,7 @@ MessageProxy::MessageProxy() {
   vhost_ = std::getenv("RABBITMQ_VHOST") ?: "/";
   exchange_ = std::getenv("RABBITMQ_EXCHANGE") ?: "";
   routing_key_ = std::getenv("RABBITMQ_ROUTING_KEY") ?: "";
+  queue_ = std::getenv("RABBITMQ_QUEUE") ?: "";
 
   if (exchange_.empty() || routing_key_.empty()) {
     throw std::runtime_error(
@@ -23,15 +24,41 @@ MessageProxy::MessageProxy() {
       exchange_, AmqpClient::Channel::EXCHANGE_TYPE_DIRECT, false, true, false);
 }
 
-void MessageProxy::publishMessage(const std::string &message) {
+void MessageProxy::sendMessage(const std::string &message) {
   AmqpClient::BasicMessage::ptr_t msg =
       AmqpClient::BasicMessage::Create(message);
-  channel_->BasicPublish(exchange_, routing_key_, msg);
+  channel_->BasicPublish("", queue_, msg);
 }
 
-void MessageProxy::sendQueueMessage(const std::string &queue_name,
-                                    const std::string &message) {
-  AmqpClient::BasicMessage::ptr_t msg =
-      AmqpClient::BasicMessage::Create(message);
-  channel_->BasicPublish("", queue_name, msg);
+void MessageProxy::sendInferInfo(const TaskInferInfo &info) {
+  std::ostringstream oss;
+  oss << "{"
+      << "\"taskId\":\"" << info.taskId << "\","
+      << "\"global_frame_index\":" << info.gFrameIndex << ","
+      << "\"seconds\":\"" << info.seconds << "\","
+      << "\"results \":" << info.results << "}";
+  std::string json_message = oss.str();
+  sendMessage(json_message);
+}
+
+void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
+  std::ostringstream oss;
+  oss << "{"
+      << "\"taskId\":\"" << info.taskId << "\","
+      << "\"decoded_frames\":" << info.decoded_frames << ","
+      << "\"remain_frames\":" << info.remain_frames << "}";
+  std::string json_message = oss.str();
+  sendMessage(json_message);
+}
+
+void MessageProxy::sendInferResultMessage(const InferenceResult &message) {
+  std::ostringstream oss;
+  oss << "{"
+      << "\"taskId\":\"" << message.taskId << "\","
+      << "\"frameIndex\":" << message.frameIndex << ","
+      << "\"seconds\":" << message.seconds << ","
+      << "\"image\":\"" << message.image << "\","
+      << "\"confidence\":" << message.confidence << "}";
+  std::string json_message = oss.str();
+  sendMessage(json_message);
 }
