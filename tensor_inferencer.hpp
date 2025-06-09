@@ -50,7 +50,7 @@ public:
   TensorInferencer(int task_id, int video_height, int video_width,
                    std::string object_name, int interval, float confidence,
                    InferResultCallback resultCallback,
-                   InferPackCallback packCallback, );
+                   InferPackCallback packCallback);
   ~TensorInferencer();
 
   bool infer(const InferenceInput &input);
