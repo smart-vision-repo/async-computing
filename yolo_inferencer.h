@@ -1,6 +1,6 @@
 #pragma once
 
-#include "inference.hpp"
+#include "models.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
