@@ -291,7 +291,7 @@ int VideoProcessor::process() {
 }
 
 void VideoProcessor::onInferResultCallback(const InferenceResult &result) {
-  messageProxy_->sendInferResult(result);
+  messageProxy_.sendInferResult(result);
 }
 
 void VideoProcessor::onInferPackCallback(const int count) {

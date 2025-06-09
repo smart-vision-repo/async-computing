@@ -69,7 +69,7 @@ private:
   int frame_width = 0;
   int frame_heigh = 0;
   int BATCH_SIZE_ = 1;
-  const MessageProxy &messageProxy_;
+  const MessageProxy messageProxy_;
 };
 
 #endif // VIDEO_PROCESSOR_H

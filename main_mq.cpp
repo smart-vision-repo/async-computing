@@ -35,25 +35,6 @@ int main() {
     loadEnvFile();
     MessageProxy proxy;
 
-    // Test sendInferInfo
-    TaskInferInfo inferInfo;
-    inferInfo.taskId = 11;
-    inferInfo.gFrameIndex = 10;
-    inferInfo.seconds = 5.0;
-    inferInfo.results = 1;
-    proxy.sendInferInfo(inferInfo);
-    std::cout << "sendInferInfo passed with taskId: " << inferInfo.taskId
-              << std::endl;
-
-    // Test sendDecodeInfo
-    TaskDecodeInfo decodeInfo;
-    decodeInfo.taskId = 12;
-    decodeInfo.decoded_frames = 100;
-    decodeInfo.remain_frames = 50;
-    proxy.sendDecodeInfo(decodeInfo);
-    std::cout << "sendDecodeInfo passed with taskId: " << decodeInfo.taskId
-              << std::endl;
-
   } catch (const std::exception &e) {
     std::cerr << "An error occurred: " << e.what() << std::endl;
     return 1;
