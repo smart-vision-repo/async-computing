@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NvInfer.h"
+#include "message_proxy.h"
 #include "models.hpp" // Contains InferenceInput and InferenceResult
 #include <functional> // For std::function
 #include <map>
@@ -49,7 +50,8 @@ class TensorInferencer {
 public:
   TensorInferencer(int task_id, int video_height, int video_width,
                    std::string object_name, int interval, float confidence,
-                   InferenceCallback callback);
+                   InferenceCallback callback,
+                   const MessageProxy &messageProxy);
   ~TensorInferencer();
 
   bool infer(const InferenceInput &input);
@@ -97,6 +99,9 @@ private:
   // Cached metadata for constant input size optimization
   bool constant_metadata_initialized_ = false;
   CachedFrameGeometry cached_geometry_;
+
+  // mq message proxy
+  const MessageProxy &messageProxy_;
 
   // Private methods
   void printEngineInfo();

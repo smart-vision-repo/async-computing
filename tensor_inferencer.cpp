@@ -54,14 +54,15 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
 TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    int video_width, std::string object_name,
                                    int interval, float confidence,
-                                   InferenceCallback callback)
+                                   InferenceCallback callback,
+                                   const MessageProxy &messageProxy)
     : // Initializer list order matches declaration order in .hpp
       task_id_(task_id), object_name_(object_name), interval_(interval),
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
       runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
       num_classes_(0), current_callback_(callback),
-      constant_metadata_initialized_(false) {
+      constant_metadata_initialized_(false), messageProxy_(messageProxy) {
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
