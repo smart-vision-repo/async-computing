@@ -56,8 +56,7 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    int video_width, std::string object_name,
                                    int interval, float confidence,
                                    InferResultCallback reusltCallback,
-                                   InferPackCallback packCallback,
-                                   const MessageProxy &messageProxy)
+                                   InferPackCallback packCallback)
     : // Initializer list order matches declaration order in .hpp
       task_id_(task_id), object_name_(object_name), interval_(interval),
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
