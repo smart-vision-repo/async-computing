@@ -296,9 +296,10 @@ void VideoProcessor::onInferResultCallback(const InferenceResult &result) {
 
 void VideoProcessor::onInferPackCallback(const int count) {
   {
+    std::cout << "\rinferenced tasks: " << count << "   " << std::flush;
     std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    pending_infer_tasks -= count;
-    total_inferred_frames += count;
+    pending_infer_tasks -= BATCH_SIZE_;
+    total_inferred_frames += BATCH_SIZE_;
     if (total_inferred_frames % 10 == 0) {
       TaskInferInfo info = TaskInferInfo();
       info.taskId = task_id_;
