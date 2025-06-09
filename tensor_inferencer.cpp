@@ -808,10 +808,9 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
         static_cast<size_t>(i) * num_attributes_from_engine *
             num_detections_per_image_from_engine;
 
-    std::vector<InferenceResult> single_frame_results;
     process_single_output(frame_meta, output_for_this_image_start,
                           num_detections_per_image_from_engine,
-                          num_attributes_from_engine, i, single_frame_results);
+                          num_attributes_from_engine, i);
   }
   pack_callback_(frames_to_preprocess_count);
 }
