@@ -60,23 +60,6 @@ VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
   }
 }
 
-void VideoProcessor::inferResultCallback(
-    const std::vector<InferenceResult> &result) {}
-
-void VideoProcessor::inferPackCallback(const int count) {
-  {
-    std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    pending_infer_tasks -= count;
-    total_inferred_frames += count;
-    TaskInferInfo info = TaskInferInfo();
-    info.taskId = task_id_;
-    info.remain = pending_infer_tasks;
-    info.completed = total_inferred_frames;
-    messageProxy_.sendInferInfo(info);
-  }
-  pending_infer_cv.notify_all();
-}
-
 bool VideoProcessor::initialize() {
   setBatchSize();
   const char *video_file_path = video_file_name_.c_str();
@@ -117,20 +100,21 @@ bool VideoProcessor::initialize() {
     return false;
   }
 
-  docoder_callback = [this](std::vector<cv::Mat> &frames, int gopId) {
-    this->onDecoded(frames, gopId);
+  DecoderCallback docoderCallback = [this](std::vector<cv::Mat> &frames,
+                                           int gopId) {
+    this->onDecoderCallback(frames, gopId);
   };
   decoder.emplace(
       video_file_name_,
-      docoder_callback); // Assuming PacketDecoder constructor matches
+      docoderCallback); // Assuming PacketDecoder constructor matches
 
   InferResultCallback resultCallabck =
       [this](const std::vector<InferenceResult> &result) {
-        this->inferResultCallback(result);
+        this->onInferResultCallback(result);
       };
 
   InferPackCallback packCallback = [this](const int &result) {
-    this->inferPackCallback(result);
+    this->onInferPackCallback(result);
   };
   tensor_inferencer.emplace(task_id_, frame_heigh, frame_width, object_name_,
                             interval_, confidence_, resultCallabck,
@@ -307,8 +291,32 @@ int VideoProcessor::process() {
   return 0;
 }
 
-void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
-                               int gFrameIdx) { // Renamed param for clarity
+void VideoProcessor::onInferResultCallback(
+    const std::vector<InferenceResult> &result) {
+  if (result.empty()) {
+    std::cerr << "Received empty inference result" << std::endl;
+    return;
+  }
+  messageProxy_.sendInferResult(result);
+}
+
+void VideoProcessor::onInferPackCallback(const int count) {
+  {
+    std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    pending_infer_tasks -= count;
+    total_inferred_frames += count;
+    TaskInferInfo info = TaskInferInfo();
+    info.taskId = task_id_;
+    info.remain = pending_infer_tasks;
+    info.completed = total_inferred_frames;
+    messageProxy_.sendInferPackInfo(info);
+  }
+  pending_infer_cv.notify_all();
+}
+
+void VideoProcessor::onDecoderCallback(
+    std::vector<cv::Mat> &received_frames,
+    int gFrameIdx) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {

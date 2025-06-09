@@ -95,7 +95,7 @@ private:
 
   // Callback and synchronization
   InferResultCallback result_callback_;
-  InferPackCompletionCallback pack_callback_;
+  InferPackCallback pack_callback_;
   std::mutex batch_mutex_;
 
   // Cached metadata for constant input size optimization

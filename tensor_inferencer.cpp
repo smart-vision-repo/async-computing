@@ -1,4 +1,5 @@
 #include "tensor_inferencer.hpp"
+#include "models.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -1103,6 +1104,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (success) {
     InferenceResult result = InferenceResult();
+    result.taskId = task_id_;
     result.confidence = conf;
     result.frameIndex = image_meta.global_frame_index;
     result.image = filename_oss.str();
