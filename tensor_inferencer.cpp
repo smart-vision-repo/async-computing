@@ -1125,11 +1125,6 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   cv::putText(img_to_save, label.str(), textOrg, cv::FONT_HERSHEY_SIMPLEX, 0.7,
               cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 
-  float timestamp_sec =
-      static_cast<float>(image_meta.global_frame_index) / 30.0f;
-
-  std::ostringstream filename_oss;
-
   /**
    * 文件名:
    * 1. 全局帧位置
@@ -1138,12 +1133,26 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
    * 4. 在GOP包中的位置
    * 5. 检测对象名称
    */
-  filename_oss << image_output_path_ << "/" << std::setprecision(0)
-               << image_meta.global_frame_index << "_"
-               << static_cast<int>(det.confidence * 10000) << ".jpg";
 
+  std::ostringstream filename_oss;
+  float timestamp_sec =
+      static_cast<float>(image_meta.global_frame_index) / 30.0f;
+
+  int confidence_int = static_cast<int>(det.confidence * 10000);
+
+  filename_oss << image_output_path_ << "/" << std::setprecision(0)
+               << image_meta.global_frame_index << "_" << confidence_int
+               << ".jpg";
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
-  if (!success) {
+  if (success) {
+    InferenceResult iResult = InferenceResult();
+    iResult.taskId = task_id_;
+    iResult.confidence = confidence_int;
+    iResult.globalFrameIndex = image_meta.global_frame_index;
+    iResult.seconds = timestamp_sec;
+    iResult.image = filename_oss.str();
+    result_callback_(iResult);
+  } else {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
               << std::endl;
   }
