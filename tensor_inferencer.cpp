@@ -1148,7 +1148,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
     InferenceResult iResult = InferenceResult();
     iResult.taskId = task_id_;
     iResult.confidence = confidence_int;
-    iResult.globalFrameIndex = image_meta.global_frame_index;
+    iResult.frameIndex = image_meta.global_frame_index;
     iResult.seconds = timestamp_sec;
     iResult.image = filename_oss.str();
     result_callback_(iResult);
