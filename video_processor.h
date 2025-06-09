@@ -67,7 +67,7 @@ private:
   int BATCH_SIZE_ = 1;
   InferenceCallback infer_callback;
   DecoderCallback docoder_callback;
-  MessageProxy &messageProxy_;
+  const MessageProxy &messageProxy_;
 };
 
 #endif // VIDEO_PROCESSOR_H
