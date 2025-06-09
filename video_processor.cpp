@@ -127,7 +127,7 @@ bool VideoProcessor::initialize() {
   tensor_inferencer.emplace(
       task_id_, frame_heigh, frame_width, object_name_,
       interval_, // Assuming TensorInferencer constructor matches
-      confidence_, infer_callback);
+      confidence_, infer_callback, messageProxy_);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
