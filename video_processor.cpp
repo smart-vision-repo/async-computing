@@ -291,8 +291,7 @@ int VideoProcessor::process() {
   return 0;
 }
 
-void VideoProcessor::onInferResultCallback(
-    const std::vector<InferenceResult> &result) {
+void VideoProcessor::onInferResultCallback(const InferenceResult &result) {
   if (result.empty()) {
     std::cerr << "Received empty inference result" << std::endl;
     return;

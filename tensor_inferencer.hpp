@@ -43,8 +43,7 @@ struct CachedFrameGeometry {
 };
 
 // 推理回调函数类型
-using InferResultCallback =
-    std::function<void(const std::vector<InferenceResult> &results)>;
+using InferResultCallback = std::function<void(const InferenceResult &results)>;
 using InferPackCallback = std::function<void(const int count)>;
 
 class TensorInferencer {
