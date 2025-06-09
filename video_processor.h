@@ -26,7 +26,8 @@ public:
 
 private:
   bool initialize();
-  void handleInferenceResult(const std::vector<InferenceResult> &result);
+  void inferResultCallback(const std::vector<InferenceResult> &result);
+  void inferPackCallback(const int count);
   void onDecoded(std::vector<cv::Mat> &frames, int gopId);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);
@@ -57,7 +58,10 @@ private:
       tensor_inferencer; // Added lazy-loaded TensorInferencer
   std::atomic<int> remaining_decode_tasks{0};
   std::atomic<int> total_decoded_frames{0};
+
+  std::atomic<int> total_inferred_frames{0};
   std::atomic<int> pending_infer_tasks{0};
+
   std::mutex task_mutex;
   std::condition_variable task_cv;
   AVFormatContext *fmtCtx = nullptr;
@@ -65,8 +69,6 @@ private:
   int frame_width = 0;
   int frame_heigh = 0;
   int BATCH_SIZE_ = 1;
-  InferenceCallback infer_callback;
-  DecoderCallback docoder_callback;
   const MessageProxy &messageProxy_;
 };
 

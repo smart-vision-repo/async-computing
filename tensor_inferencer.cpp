@@ -54,15 +54,16 @@ int TensorInferencer::roundToNearestMultiple(int val, int base) {
 TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    int video_width, std::string object_name,
                                    int interval, float confidence,
-                                   InferenceCallback callback,
+                                   InferResultCallback reusltCallback,
+                                   InferPackCallback packCallback,
                                    const MessageProxy &messageProxy)
     : // Initializer list order matches declaration order in .hpp
       task_id_(task_id), object_name_(object_name), interval_(interval),
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
       runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
-      num_classes_(0), current_callback_(callback),
-      constant_metadata_initialized_(false), messageProxy_(messageProxy) {
+      num_classes_(0), result_callback_(reusltCallback),
+      pack_callback_(packCallback), constant_metadata_initialized_(false) {
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -249,6 +250,7 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
     // dynamic. And then "用于预处理的最终 target_w_ = 1920, 用于预处理的最终
     // target_h_ = 1088" This is consistent with Profile 0 MAX dimensions.
   }
+
   // The original logic for setting target_w_, target_h_ based on engine's
   // reported default dims seemed to work and pick up dynamic values correctly,
   // falling back to calculated ones. The user's log shows this resulted in
@@ -591,11 +593,9 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   std::vector<BatchImageMetadata> temp_metadata_for_this_batch;
 
   if (pad_batch) {
-    // Finalizing: TRT batch size is BATCH_SIZE_, padding if necessary
     trt_batch_size = BATCH_SIZE_;
     frames_to_preprocess_count =
         num_real_frames_in_queue; // Process all remaining real frames
-    // Copy all current metadata
     temp_metadata_for_this_batch = current_batch_metadata_;
   } else {
     // Regular full batch: TRT batch size is BATCH_SIZE_. We take BATCH_SIZE_
@@ -630,28 +630,22 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
                                         current_batch_metadata_.begin() +
                                             frames_to_preprocess_count);
   }
-  if (trt_batch_size <=
-      0) { // Should have been caught by BATCH_SIZE_ > 0 check in constructor
-    std::cout << "[DEBUG_PerformBatch] trt_batch_size is <= 0. Returning."
-              << std::endl;
+
+  if (trt_batch_size <= 0) {
+    // Should have been caught by BATCH_SIZE_ > 0 check in constructor
     return;
   }
+
   // If there are no real frames to process and we are not padding up to a
   // larger batch, nothing to do for TRT.
-  if (frames_to_preprocess_count == 0 &&
-      trt_batch_size ==
-          0) { // This condition is now effectively trt_batch_size <=0
-    std::cout << "[DEBUG_PerformBatch] No frames to preprocess and "
-                 "trt_batch_size is 0. Returning."
-              << std::endl;
+  if (frames_to_preprocess_count == 0 && trt_batch_size == 0) {
+    // This condition is now effectively trt_batch_size <=0
     return;
   }
 
   // Pad metadata if finalizing and necessary
   if (pad_batch && frames_to_preprocess_count < trt_batch_size) {
     int num_to_pad = trt_batch_size - frames_to_preprocess_count;
-    std::cout << "[DEBUG_PerformBatch] Padding batch with " << num_to_pad
-              << " dummy frames for metadata." << std::endl;
     for (int k = 0; k < num_to_pad; ++k) {
       BatchImageMetadata dummy_meta;
       dummy_meta.is_real_image = false;
@@ -673,6 +667,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
               << target_w_ << std::endl;
     return;
   }
+
   if (!context_->allInputDimensionsSpecified()) {
     std::cerr << "[错误] 未指定批处理推理的所有输入维度。" << std::endl;
     return;
@@ -757,19 +752,9 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   for (int i = 0; i < trt_batch_size; ++i) {
     cv::Mat current_raw_img_for_preprocessing_cpu;
     if (temp_metadata_for_this_batch[i].is_real_image) {
-      // Real frames are at the beginning of current_batch_raw_frames_
-      // This 'i' corresponds to the slot in the TRT batch.
-      // We need to ensure we only access current_batch_raw_frames_ for actual
-      // real frames available.
-      if (i <
-          frames_to_preprocess_count) { // frames_to_preprocess_count is number
-                                        // of actual real frames for this batch
-        current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
+      if (i < frames_to_preprocess_count) {
+        / current_raw_img_for_preprocessing_cpu = current_batch_raw_frames_[i];
       } else {
-        // This indicates a padding slot that somehow has is_real_image = true
-        // in metadata, which is a logic error if padding was done correctly.
-        // preprocess_single_image_for_batch will treat as dummy if cpu_img is
-        // empty.
         std::cerr
             << "[错误_PerformBatch_PreprocLoop] Metadata at TRT batch slot "
             << i
@@ -807,32 +792,16 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     return;
   }
 
-  std::vector<InferenceResult> batch_inference_results_for_callback;
   // Post-process only the actual real frames that were part of this batch
   for (int i = 0; i < frames_to_preprocess_count; ++i) {
     const BatchImageMetadata &frame_meta = temp_metadata_for_this_batch[i];
 
-    if (!frame_meta.is_real_image) { // Should not happen if loop is up to
-                                     // frames_to_preprocess_count
-      std::cerr << "[警告][PerformBatch_PostProc] Trying to post-process a "
-                   "non-real frame meta at index "
-                << i
-                << " (total real preprocessed: " << frames_to_preprocess_count
-                << "). Skipping." << std::endl;
+    if (!frame_meta.is_real_image) {
       continue;
     }
     if (frame_meta.original_image_for_callback.empty()) {
-      std::cerr << "[警告][PerformBatch_PostProc] Real frame (Frame: "
-                << frame_meta.global_frame_index
-                << ") original_image_for_callback is empty. Skipping."
-                << std::endl;
-      InferenceResult res;
-      res.info = "Error: Original image for callback was empty for Frame " +
-                 std::to_string(frame_meta.global_frame_index);
-      batch_inference_results_for_callback.push_back(res);
       continue;
     }
-
     const float *output_for_this_image_start =
         host_output_batched_raw.data() +
         static_cast<size_t>(i) * num_attributes_from_engine *
@@ -842,19 +811,8 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
     process_single_output(frame_meta, output_for_this_image_start,
                           num_detections_per_image_from_engine,
                           num_attributes_from_engine, i, single_frame_results);
-
-    batch_inference_results_for_callback.insert(
-        batch_inference_results_for_callback.end(),
-        single_frame_results.begin(), single_frame_results.end());
   }
-
-  if (current_callback_ && !batch_inference_results_for_callback.empty()) {
-    current_callback_(batch_inference_results_for_callback);
-  } else if (!current_callback_ &&
-             !batch_inference_results_for_callback.empty()) {
-    std::cerr << "[错误][PerformBatch] 回调函数未设置，但有帧结果需要处理！"
-              << std::endl;
-  }
+  pack_callback_(frames_to_preprocess_count);
 }
 
 // 修改后的
@@ -862,8 +820,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
-    int num_attributes_per_detection, int original_batch_idx_for_debug,
-    std::vector<InferenceResult> &frame_results) {
+    int num_attributes_per_detection, int original_batch_idx_for_debug) {
 
   std::vector<float> transposed_output(
       static_cast<size_t>(num_detections_in_slice) *
@@ -940,15 +897,12 @@ void TensorInferencer::process_single_output(
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
   if (nms_detections.empty() && image_meta.is_real_image) {
-    InferenceResult res;
     std::ostringstream oss;
     oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
         << std::setprecision(2) << timestamp_sec << "s)"
         << ": No '" << this->object_name_
         << "' detected meeting criteria (conf: " << std::fixed
         << std::setprecision(2) << confidence_threshold << ").";
-    res.info = oss.str();
-    frame_results.push_back(res);
   }
 
   for (size_t i = 0; i < nms_detections.size(); ++i) {
@@ -962,15 +916,8 @@ void TensorInferencer::process_single_output(
     }
 
     // 仅打印最终被判定为目标类的检测框
-    std::cout << "[输出] Frame " << image_meta.global_frame_index
-              << ", Class: " << this->object_name_ << " (" << det.class_id
-              << ")"
-              << ", Confidence: " << std::fixed << std::setprecision(4)
-              << det.confidence << std::endl;
-
     saveAnnotatedImage(det, image_meta, static_cast<int>(i));
 
-    InferenceResult res;
     std::ostringstream oss;
     oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
         << std::setprecision(2) << timestamp_sec << "s)"
@@ -1004,8 +951,6 @@ void TensorInferencer::process_single_output(
       oss << ". Coords (model_input_space): [" << det.x1 << "," << det.y1 << ","
           << det.x2 << "," << det.y2 << "]";
     }
-    res.info = oss.str();
-    frame_results.push_back(res);
   }
 }
 
@@ -1141,11 +1086,6 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   cv::putText(img_to_save, label.str(), textOrg, cv::FONT_HERSHEY_SIMPLEX, 0.7,
               cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 
-  float timestamp_sec =
-      static_cast<float>(image_meta.global_frame_index) / 30.0f;
-
-  std::ostringstream filename_oss;
-
   /**
    * 文件名:
    * 1. 全局帧位置
@@ -1154,12 +1094,21 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
    * 4. 在GOP包中的位置
    * 5. 检测对象名称
    */
-  filename_oss << image_output_path_ << "/" << std::setprecision(0)
-               << image_meta.global_frame_index << "_"
-               << static_cast<int>(det.confidence * 10000) << ".jpg";
 
+  float timestamp_sec = static_cast<int>(image_meta.global_frame_index) / 30.0f;
+  std::ostringstream filename_oss;
+  int conf = static_cast<int>(det.confidence * 10000);
+  filename_oss << image_output_path_ << "/" << std::setprecision(0)
+               << image_meta.global_frame_index << "_" << conf << ".jpg";
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
-  if (!success) {
+  if (success) {
+    InferenceResult result = InferenceResult();
+    result.confidence = conf;
+    result.frameIndex = image_meta.global_frame_index;
+    result.image = filename_oss.str();
+    result.seconds = timestamp_sec;
+    result_callback_(result);
+  } else {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
               << std::endl;
   }

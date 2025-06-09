@@ -43,15 +43,16 @@ struct CachedFrameGeometry {
 };
 
 // 推理回调函数类型
-using InferenceCallback =
+using InferResultCallback =
     std::function<void(const std::vector<InferenceResult> &results)>;
+using InferPackCallback = std::function<void(const int count)>;
 
 class TensorInferencer {
 public:
   TensorInferencer(int task_id, int video_height, int video_width,
                    std::string object_name, int interval, float confidence,
-                   InferenceCallback callback,
-                   const MessageProxy &messageProxy);
+                   InferResultCallback resultCallback,
+                   InferPackCallback packCallback);
   ~TensorInferencer();
 
   bool infer(const InferenceInput &input);
@@ -93,15 +94,13 @@ private:
   std::vector<BatchImageMetadata> current_batch_metadata_;
 
   // Callback and synchronization
-  InferenceCallback current_callback_;
+  InferResultCallback result_callback_;
+  InferPackCompletionCallback pack_callback_;
   std::mutex batch_mutex_;
 
   // Cached metadata for constant input size optimization
   bool constant_metadata_initialized_ = false;
   CachedFrameGeometry cached_geometry_;
-
-  // mq message proxy
-  const MessageProxy &messageProxy_;
 
   // Private methods
   void printEngineInfo();

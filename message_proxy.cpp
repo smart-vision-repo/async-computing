@@ -30,13 +30,12 @@ void MessageProxy::sendMessage(const std::string &message) {
   channel_->BasicPublish("", queue_, msg);
 }
 
-void MessageProxy::sendInferInfo(const TaskInferInfo &info) {
+void MessageProxy::sendInferPackInfo(const TaskInferInfo &info) {
   std::ostringstream oss;
   oss << "{"
       << "\"taskId\":\"" << info.taskId << "\","
-      << "\"global_frame_index\":" << info.gFrameIndex << ","
-      << "\"seconds\":\"" << info.seconds << "\","
-      << "\"results \":" << info.results << "}";
+      << "\"completed\":" << info.completed << ","
+      << "\"remain\":" << info.remain << "}";
   std::string json_message = oss.str();
   sendMessage(json_message);
 }
@@ -51,7 +50,7 @@ void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
   sendMessage(json_message);
 }
 
-void MessageProxy::sendInferResultMessage(const InferenceResult &message) {
+void MessageProxy::sendInferResult(const InferenceResult &message) {
   std::ostringstream oss;
   oss << "{"
       << "\"taskId\":\"" << message.taskId << "\","

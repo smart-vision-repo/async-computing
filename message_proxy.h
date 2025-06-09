@@ -7,9 +7,9 @@
 class MessageProxy {
 public:
   MessageProxy();
-  void sendInferResultMessage(const InferenceResult &message);
-  void sendDecodeInfo(const TaskDecodeInfo &message);
-  void sendInferInfo(const TaskInferInfo &message);
+  void sendInferResult(const InferenceResult &message);
+  void sendDecodeInfo(const TaskDecodeInfo &info);
+  void sendInferPackInfo(const TaskInferInfo &info);
 
 private:
   std::string host_;

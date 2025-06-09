@@ -29,8 +29,7 @@ struct TaskDecodeInfo {
 
 // 推理过程信息
 struct TaskInferInfo {
-  int taskId; // 推理状态信息（可扩展）
-  int gFrameIndex;
-  int seconds;
-  int results;
+  int taskId;
+  int completed;
+  int remain;
 };

@@ -60,16 +60,19 @@ VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
   }
 }
 
-void VideoProcessor::handleInferenceResult(
-    const std::vector<InferenceResult> &result) {
+void VideoProcessor::inferResultCallback(
+    const std::vector<InferenceResult> &result) {}
+
+void VideoProcessor::inferPackCallback(const int count) {
   {
     std::lock_guard<std::mutex> lock(pending_infer_mutex);
-    // This line is kept based on your explanation that TensorInferencer's
-    // callback corresponds to BATCH_SIZE_ submissions having been processed.
-    // Its correctness relies on TensorInferencer (including finalizeInference)
-    // managing callbacks such that this accounting results in
-    // pending_infer_tasks eventually reaching <= 0.
-    pending_infer_tasks -= BATCH_SIZE_;
+    pending_infer_tasks -= count;
+    total_inferred_frames += count;
+    TaskInferInfo info = TaskInferInfo();
+    info.taskId = task_id_;
+    info.remain = pending_infer_tasks;
+    info.completed = total_inferred_frames;
+    messageProxy_.sendInferInfo(info);
   }
   pending_infer_cv.notify_all();
 }
@@ -121,13 +124,17 @@ bool VideoProcessor::initialize() {
       video_file_name_,
       docoder_callback); // Assuming PacketDecoder constructor matches
 
-  infer_callback = [this](const std::vector<InferenceResult> &result) {
-    this->handleInferenceResult(result);
+  InferResultCallback resultCallabck =
+      [this](const std::vector<InferenceResult> &result) {
+        this->inferResultCallback(result);
+      };
+
+  InferPackCallback packCallback = [this](const int &result) {
+    this->inferPackCallback(result);
   };
-  tensor_inferencer.emplace(
-      task_id_, frame_heigh, frame_width, object_name_,
-      interval_, // Assuming TensorInferencer constructor matches
-      confidence_, infer_callback, messageProxy_);
+  tensor_inferencer.emplace(task_id_, frame_heigh, frame_width, object_name_,
+                            interval_, confidence_, resultCallabck,
+                            packCallback);
   std::cout << "Video width: " << frame_width << ", height: " << frame_heigh
             << std::endl;
 
@@ -279,21 +286,23 @@ int VideoProcessor::process() {
       (frame_idx_ > 0)
           ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx_)
           : 0.0f;
-  std::cout
-      << "Total GOPs processed: " << gop_idx << std::endl
-      << "Interval: " << interval_ << std::endl
-      << "Total packages for last segment processing: " << total_packages
-      << std::endl // Clarified meaning
-      << "Frames submitted for decoding (estimate): " << decoded_frames
-      << std::endl
-      << "Frames skipped by selection logic: " << skipped_frames << std::endl
-      << "Discrepancy (Total read - submitted for decode - skipped by logic): "
-      << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
-      << "Percentage of frames submitted for decoding from total read: "
-      << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
-      << "Successfully decoded frames (from callbacks): "
-      << total_decoded_frames.load() << std::endl
-      << "Extraction trigger points (hits): " << total_hits << std::endl;
+  std::cout << "Total GOPs processed: " << gop_idx << std::endl
+            << "Interval: " << interval_ << std::endl
+            << "Total packages for last segment processing: " << total_packages
+            << std::endl // Clarified meaning
+            << "Frames submitted for decoding (estimate): " << decoded_frames
+            << std::endl
+            << "Frames skipped by selection logic: " << skipped_frames
+            << std::endl
+            << "Discrepancy (Total read - submitted for decode - skipped by "
+               "logic): "
+            << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
+            << "Percentage of frames submitted for decoding from total read: "
+            << std::fixed << std::setprecision(2) << percentage << "%"
+            << std::endl
+            << "Successfully decoded frames (from callbacks): "
+            << total_decoded_frames.load() << std::endl
+            << "Extraction trigger points (hits): " << total_hits << std::endl;
 
   return 0;
 }
@@ -329,7 +338,7 @@ void VideoProcessor::onDecoded(std::vector<cv::Mat> &received_frames,
   taskDecodeInfo.taskId = task_id_;
   taskDecodeInfo.decoded_frames = total_decoded_frames;
   taskDecodeInfo.remain_frames = remaining_decode_tasks;
-
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
   task_cv.notify_all();
 }
 
