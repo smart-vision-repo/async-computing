@@ -303,7 +303,7 @@ void VideoProcessor::onInferPackCallback(const int count) {
     info.taskId = task_id_;
     info.remain = pending_infer_tasks;
     info.completed = total_inferred_frames;
-    messageProxy_->sendInferPackInfo(info);
+    messageProxy_.sendInferPackInfo(info);
   }
   pending_infer_cv.notify_all();
 }
