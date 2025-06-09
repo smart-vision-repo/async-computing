@@ -34,6 +34,7 @@ void MessageProxy::sendInferPackInfo(const TaskInferInfo &info) {
   std::ostringstream oss;
   oss << "{"
       << "\"taskId\":\"" << info.taskId << "\","
+      << "\"type\":\"" << info.type << "\","
       << "\"completed\":" << info.completed << ","
       << "\"remain\":" << info.remain << "}";
   std::string json_message = oss.str();
@@ -44,6 +45,7 @@ void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
   std::ostringstream oss;
   oss << "{"
       << "\"taskId\":\"" << info.taskId << "\","
+      << "\"type\":\"" << info.type << "\","
       << "\"decoded_frames\":" << info.decoded_frames << ","
       << "\"remain_frames\":" << info.remain_frames << "}";
   std::string json_message = oss.str();
@@ -54,6 +56,7 @@ void MessageProxy::sendInferResult(const InferenceResult &message) {
   std::ostringstream oss;
   oss << "{"
       << "\"taskId\":\"" << message.taskId << "\","
+      << "\"type\":\"" << message.type << "\","
       << "\"frameIndex\":" << message.frameIndex << ","
       << "\"seconds\":" << message.seconds << ","
       << "\"image\":\"" << message.image << "\","
