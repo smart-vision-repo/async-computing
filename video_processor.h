@@ -20,7 +20,7 @@ class VideoProcessor {
 public:
   VideoProcessor(int task_id, const std::string &video_file_name,
                  const std::string &object_name, float confidence, int interval,
-                 int start_frame_index, const MessageProxy &messageProxy);
+                 int start_frame_index, MessageProxy &messageProxy);
   ~VideoProcessor();
   int process();
 
@@ -69,7 +69,7 @@ private:
   int frame_width = 0;
   int frame_heigh = 0;
   int BATCH_SIZE_ = 1;
-  const MessageProxy messageProxy_;
+  MessageProxy messageProxy_;
 };
 
 #endif // VIDEO_PROCESSOR_H

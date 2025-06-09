@@ -49,7 +49,7 @@ VideoProcessor::~VideoProcessor() {
 VideoProcessor::VideoProcessor(int order_id, const std::string &video_file_name,
                                const std::string &object_name, float confidence,
                                int interval, int start_frame_index,
-                               const MessageProxy &messageProxy)
+                               MessageProxy &messageProxy)
     : task_id_(order_id), video_file_name_(video_file_name),
       object_name_(object_name), confidence_(confidence), interval_(interval),
       frame_idx_(start_frame_index), stop_infer_thread(false), fmtCtx(nullptr),
