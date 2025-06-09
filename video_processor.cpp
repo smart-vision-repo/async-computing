@@ -299,11 +299,13 @@ void VideoProcessor::onInferPackCallback(const int count) {
     std::lock_guard<std::mutex> lock(pending_infer_mutex);
     pending_infer_tasks -= count;
     total_inferred_frames += count;
-    TaskInferInfo info = TaskInferInfo();
-    info.taskId = task_id_;
-    info.remain = pending_infer_tasks;
-    info.completed = total_inferred_frames;
-    messageProxy_.sendInferPackInfo(info);
+    if (total_inferred_frames % 10 == 0) {
+      TaskInferInfo info = TaskInferInfo();
+      info.taskId = task_id_;
+      info.remain = pending_infer_tasks;
+      info.completed = total_inferred_frames;
+      messageProxy_.sendInferPackInfo(info);
+    }
   }
   pending_infer_cv.notify_all();
 }
@@ -334,13 +336,15 @@ void VideoProcessor::onDecoderCallback(
     }
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
+    if (total_inferred_frames % 10) {
+      TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+      taskDecodeInfo.taskId = task_id_;
+      taskDecodeInfo.decoded_frames = total_decoded_frames;
+      taskDecodeInfo.remain_frames = remaining_decode_tasks;
+      messageProxy_.sendDecodeInfo(taskDecodeInfo);
+    }
   }
 
-  TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
-  taskDecodeInfo.taskId = task_id_;
-  taskDecodeInfo.decoded_frames = total_decoded_frames;
-  taskDecodeInfo.remain_frames = remaining_decode_tasks;
-  messageProxy_.sendDecodeInfo(taskDecodeInfo);
   task_cv.notify_all();
 }
 
