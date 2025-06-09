@@ -108,10 +108,9 @@ bool VideoProcessor::initialize() {
       video_file_name_,
       docoderCallback); // Assuming PacketDecoder constructor matches
 
-  InferResultCallback resultCallabck =
-      [this](const std::vector<InferenceResult> &result) {
-        this->onInferResultCallback(result);
-      };
+  InferResultCallback resultCallabck = [this](const InferenceResult &result) {
+    this->onInferResultCallback(result);
+  };
 
   InferPackCallback packCallback = [this](const int &result) {
     this->onInferPackCallback(result);
@@ -292,10 +291,6 @@ int VideoProcessor::process() {
 }
 
 void VideoProcessor::onInferResultCallback(const InferenceResult &result) {
-  if (result.empty()) {
-    std::cerr << "Received empty inference result" << std::endl;
-    return;
-  }
   messageProxy_.sendInferResult(result);
 }
 
