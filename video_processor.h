@@ -1,5 +1,6 @@
 #ifndef VIDEO_PROCESSOR_H
 #define VIDEO_PROCESSOR_H
+#include "message_proxy.h"
 #include "models.hpp"
 #include "packet_decoder.h"
 #include "tensor_inferencer.hpp"
