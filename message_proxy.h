@@ -18,8 +18,9 @@ private:
   std::string password_;
   std::string vhost_;
   std::string exchange_;
-  std::string routing_key_;
-  std::string queue_;
+  std::string result_queue_;
+  std::string notify_queue_;
   AmqpClient::Channel::ptr_t channel_;
-  void sendMessage(const std::string &message);
+  void sendNotificationMessage(const std::string &message);
+  void sendInferResultMessage(const std::string &message);
 };

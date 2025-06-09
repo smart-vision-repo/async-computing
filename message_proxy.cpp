@@ -10,13 +10,8 @@ MessageProxy::MessageProxy() {
   password_ = std::getenv("RABBITMQ_PASS") ?: "guest";
   vhost_ = std::getenv("RABBITMQ_VHOST") ?: "/";
   exchange_ = std::getenv("RABBITMQ_EXCHANGE") ?: "";
-  routing_key_ = std::getenv("RABBITMQ_ROUTING_KEY") ?: "";
-  queue_ = std::getenv("RABBITMQ_QUEUE") ?: "";
-
-  if (exchange_.empty() || routing_key_.empty()) {
-    throw std::runtime_error(
-        "RABBITMQ_EXCHANGE and RABBITMQ_ROUTING_KEY must be set.");
-  }
+  result_queue_ = std::getenv("RABBITMQ_RESULT_QUEUE") ?: "";
+  notify_queue_ = std::getenv("RABBITMQ_NOTIFIY_QUEUE") ?: "";
 
   channel_ =
       AmqpClient::Channel::Create(host_, port_, user_, password_, vhost_);
@@ -24,10 +19,16 @@ MessageProxy::MessageProxy() {
       exchange_, AmqpClient::Channel::EXCHANGE_TYPE_DIRECT, false, true, false);
 }
 
-void MessageProxy::sendMessage(const std::string &message) {
+void MessageProxy::sendNotificationMessage(const std::string &message) {
   AmqpClient::BasicMessage::ptr_t msg =
       AmqpClient::BasicMessage::Create(message);
-  channel_->BasicPublish("", queue_, msg);
+  channel_->BasicPublish("", result_queue_, msg);
+}
+
+void MessageProxy::sendInferResultMessage(const std::string &message) {
+  AmqpClient::BasicMessage::ptr_t msg =
+      AmqpClient::BasicMessage::Create(message);
+  channel_->BasicPublish("", notify_queue_, msg);
 }
 
 void MessageProxy::sendInferPackInfo(const TaskInferInfo &info) {
@@ -38,7 +39,7 @@ void MessageProxy::sendInferPackInfo(const TaskInferInfo &info) {
       << "\"completed\":" << info.completed << ","
       << "\"remain\":" << info.remain << "}";
   std::string json_message = oss.str();
-  sendMessage(json_message);
+  sendNotificationMessage(json_message);
 }
 
 void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
@@ -49,7 +50,7 @@ void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
       << "\"decoded_frames\":" << info.decoded_frames << ","
       << "\"remain_frames\":" << info.remain_frames << "}";
   std::string json_message = oss.str();
-  sendMessage(json_message);
+  sendNotificationMessage(json_message);
 }
 
 void MessageProxy::sendInferResult(const InferenceResult &message) {
@@ -62,5 +63,5 @@ void MessageProxy::sendInferResult(const InferenceResult &message) {
       << "\"image\":\"" << message.image << "\","
       << "\"confidence\":" << message.confidence << "}";
   std::string json_message = oss.str();
-  sendMessage(json_message);
+  sendInferResultMessage(json_message);
 }
