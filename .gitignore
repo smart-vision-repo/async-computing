@@ -100,3 +100,4 @@ app_*
 *.wmv
 *.mpg
 *.mpeg
+.env
