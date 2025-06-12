@@ -63,7 +63,7 @@ int main(int argc, char *argv[]) {
       std::cerr << "[WARNING] Invalid CONFIDENCE value in .env, using default 0.4\n";
     }
   }
-  std::count << "confidence: " <<  confidence << std::endl;
+  std::cout << "confidence: " <<  confidence << std::endl;
   int idx = 0;
   int task_id = std::stoi(argv[++idx]);
   std::string video_file_name = argv[++idx];
