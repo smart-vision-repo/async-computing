@@ -23,10 +23,11 @@ struct InferenceResult {
 
 // 解码过程信息
 struct TaskDecodeInfo {
-  int taskId; // 推理状态信息（可扩展）
+  int taskId; 
   int type = 20;
   int decoded_frames;
   int remain_frames;
+  int global_frame_index; // Total frames processed so far
 };
 
 // 推理过程信息

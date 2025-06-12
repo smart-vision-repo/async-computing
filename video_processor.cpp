@@ -318,9 +318,8 @@ void VideoProcessor::onDecoderCallback(
 
   if (num_decoded_this_call > 0) {
     InferenceInput input;
-    input.decoded_frames =
-        std::move(received_frames); // 'received_frames' is now empty or in a
-                                    // valid but unspecified state
+    input.decoded_frames = std::move(received_frames); 
+                                 
     input.latest_frame_index = gFrameIdx;
     tensor_inferencer->infer(input);
     {
@@ -340,6 +339,7 @@ void VideoProcessor::onDecoderCallback(
     if (total_inferred_frames % 10) {
       TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
       taskDecodeInfo.taskId = task_id_;
+      taskDecodeInfo.global_frame_index = gFrameIdx;
       taskDecodeInfo.decoded_frames = total_decoded_frames;
       taskDecodeInfo.remain_frames = remaining_decode_tasks;
       messageProxy_.sendDecodeInfo(taskDecodeInfo);
