@@ -50,16 +50,25 @@ void loadEnvFile() {
 }
 
 int main(int argc, char *argv[]) {
+  loadEnvFile();
   if (!validateArguments(argc, argv)) {
     return 1;
   }
-  loadEnvFile();
+  const char* confidenceEnv = std::getenv("CONFIDENCE");
+  float confidence = 0.4f;
+  if (confidenceEnv) {
+    try {
+      confidence = std::stof(confidenceEnv);
+    } catch (...) {
+      std::cerr << "[WARNING] Invalid CONFIDENCE value in .env, using default 0.4\n";
+    }
+  }
   int idx = 0;
   int task_id = std::stoi(argv[++idx]);
   std::string video_file_name = argv[++idx];
   std::string object_name = argv[++idx];
   MessageProxy proxy;
-  VideoProcessor processor(task_id, video_file_name, object_name, 0.4f, 30, 0,
+  VideoProcessor processor(task_id, video_file_name, object_name, confidence, 30, 0,
                            proxy);
   return processor.process();
 }
