@@ -159,7 +159,7 @@ int VideoProcessor::process() {
             if (decoding_pkts.empty()) {
               clear_av_packets(&decoding_pkts);
             } else {
-              decoder->decode(decoding_pkts, interval_, frame_idx_, decoded_frames + skipped_frames);
+              decoder->decode(decoding_pkts, interval_, frame_idx_, frame_idx_in_gop);
               {
                 std::lock_guard<std::mutex> lock(task_mutex);
                 remaining_decode_tasks++;
