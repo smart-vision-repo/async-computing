@@ -101,8 +101,8 @@ bool VideoProcessor::initialize() {
   }
 
   DecoderCallback docoderCallback = [this](std::vector<cv::Mat> &frames,
-                                           int gopId) {
-    this->onDecoderCallback(frames, gopId);
+                                           int gopId, int disposedFrames) {
+    this->onDecoderCallback(frames, gopId, disposedFrames);
   };
   decoder.emplace(
       video_file_name_,
@@ -133,9 +133,10 @@ int VideoProcessor::process() {
 
   int gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
-  int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
-      total_packages = 0; // total_packages seems to be only updated once, for
-                          // the last segment
+  int total_hits = 0;  // 跳帧条件下，累计取到的帧数.
+  int decoded_frames = 0; // 送给decoder包中解码得到的帧数.
+  int skipped_frames = 0; // 跳过的帧数.
+  int total_packages = 0; // GOP包的数量，即关键帧的数量.
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
   std::vector<std::vector<AVPacket *>> all_pkts; // Used for final cleanup
 
@@ -145,6 +146,7 @@ int VideoProcessor::process() {
       if (frame_idx_ > 1 && (frame_idx_ - 1) % interval_ == 0) {
         hits++;
       }
+      // 获取当前帧是否为key frame.
       bool is_key_frame = (packet->flags & AV_PKT_FLAG_KEY);
       if (is_key_frame) {
         int last_frame_in_gop = 0; // To be calculated
@@ -153,31 +155,20 @@ int VideoProcessor::process() {
           last_frame_in_gop = hits * interval_ - pool;
           if (last_frame_in_gop > 0) {
             decoded_frames += last_frame_in_gop; // Statistical count
-            std::vector<AVPacket *> decoding_pkts =
-                get_packets_for_decoding(pkts, last_frame_in_gop);
-            if (!decoding_pkts.empty()) {
-              decoder->decode(
-                  decoding_pkts, interval_,
-                  frame_idx_); // frame_idx here is latest_frame_index in GOP
-                               // for context
+            std::vector<AVPacket *> decoding_pkts = get_packets_for_decoding(pkts, last_frame_in_gop);
+            if (decoding_pkts.empty()) {
+              clear_av_packets(&decoding_pkts);
+            } else {
+              decoder->decode(decoding_pkts, interval_, frame_idx_, frame_idx_in_gop);
               {
                 std::lock_guard<std::mutex> lock(task_mutex);
                 remaining_decode_tasks++;
               }
-              all_pkts.push_back(
-                  std::move(decoding_pkts)); // Store for later cleanup
-            } else {
-              // if decoding_pkts is unexpectedly empty, ensure cleanup if it
-              // allocated internally
-              clear_av_packets(&decoding_pkts); // Or just let it be if it's
-                                                // stack-allocated and empty
+              all_pkts.push_back(std::move(decoding_pkts));
             }
           }
           total_hits += hits; // Statistical count
-          pool =
-              frame_idx_in_gop -
-              last_frame_in_gop; // frame_idx_in_gop here is from previous GOP
-                                 // last_frame_in_gop from current processing
+          pool = frame_idx_in_gop - last_frame_in_gop;
         } else {
           pool += frame_idx_in_gop;
         }
@@ -205,18 +196,17 @@ int VideoProcessor::process() {
       std::vector<AVPacket *> decoding_pkts =
           get_packets_for_decoding(pkts, last_frame_in_gop);
       if (!decoding_pkts.empty()) {
-        decoder->decode(decoding_pkts, interval_,
-                        frame_idx_); // frame_idx is total frames read
+        decoder->decode(decoding_pkts, interval_, frame_idx_, frame_idx_in_gop); 
         {
           std::lock_guard<std::mutex> lock(task_mutex);
           remaining_decode_tasks++;
         }
-        all_pkts.push_back(std::move(decoding_pkts)); // Store for later cleanup
+        all_pkts.push_back(std::move(decoding_pkts)); 
       } else {
         clear_av_packets(&decoding_pkts);
       }
-      decoded_frames += last_frame_in_gop; // Statistical count
-      total_packages += last_frame_in_gop; // Statistical count
+      decoded_frames += last_frame_in_gop; 
+      total_packages += last_frame_in_gop;
     }
     total_hits += hits; // Statistical count
     pool = frame_idx_in_gop -
@@ -225,6 +215,15 @@ int VideoProcessor::process() {
     pool += frame_idx_in_gop;
   }
   skipped_frames += pool; // Add final pool to skipped frames
+
+
+  TaskDecodeInfo taskDecodeInfo= TaskDecodeInfo();
+  taskDecodeInfo.taskId = task_id_;
+  taskDecodeInfo.decoded_frames = 0;
+  taskDecodeInfo.disposed_frames =pool;
+  taskDecodeInfo.infer_frames = 0;
+  taskDecodeInfo.total = pool;
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   // Wait for all decoding and inference tasks to complete using a single lock
   // and CV
@@ -264,28 +263,22 @@ int VideoProcessor::process() {
   delete pkts;             // Delete the pkts list itself
   pkts = nullptr;
 
+  TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+  taskDecodeInfo.taskId = task_id_;
+  taskDecodeInfo.total = pool; 
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
+
   std::cout << "-------------------" << std::endl;
   float percentage =
       (frame_idx_ > 0)
           ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx_)
           : 0.0f;
-  std::cout << "Total GOPs processed: " << gop_idx << std::endl
-            << "Interval: " << interval_ << std::endl
-            << "Total packages for last segment processing: " << total_packages
-            << std::endl // Clarified meaning
-            << "Frames submitted for decoding (estimate): " << decoded_frames
-            << std::endl
-            << "Frames skipped by selection logic: " << skipped_frames
-            << std::endl
-            << "Discrepancy (Total read - submitted for decode - skipped by "
-               "logic): "
-            << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
-            << "Percentage of frames submitted for decoding from total read: "
-            << std::fixed << std::setprecision(2) << percentage << "%"
-            << std::endl
-            << "Successfully decoded frames (from callbacks): "
-            << total_decoded_frames.load() << std::endl
-            << "Extraction trigger points (hits): " << total_hits << std::endl;
+  std::cout << "Decoded Frames: " << decoded_frames << std::endl
+            << "Skipped Frames: " << skipped_frames << std::endl
+            << "Discrepancy: " << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
+            << "Percentage: " << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
+            << "hits: " << total_hits << std::endl
+            << "Total: " << decoded_frames + skipped_frames << std::endl;
 
   return 0;
 }
@@ -300,34 +293,33 @@ void VideoProcessor::onInferPackCallback(const int count) {
     std::lock_guard<std::mutex> lock(pending_infer_mutex);
     pending_infer_tasks -= BATCH_SIZE_;
     total_inferred_frames += BATCH_SIZE_;
-    if (total_inferred_frames % BATCH_SIZE_ == 0) {
-      TaskInferInfo info = TaskInferInfo();
-      info.taskId = task_id_;
-      info.remain = pending_infer_tasks;
-      info.completed = total_inferred_frames;
-      messageProxy_.sendInferPackInfo(info);
-    }
+    // if (total_inferred_frames % BATCH_SIZE_ == 0) {
+    // TaskInferInfo info = TaskInferInfo();
+    // info.taskId = task_id_;
+    // info.remain = pending_infer_tasks;
+    // info.completed = total_inferred_frames;
+    // messageProxy_.sendInferPackInfo(info);
+    // }
   }
   pending_infer_cv.notify_all();
 }
 
 void VideoProcessor::onDecoderCallback(
     std::vector<cv::Mat> &received_frames,
-    int gFrameIdx) { // Renamed param for clarity
+    int gFrameIdx, int total) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
-    InferenceInput input;
-    input.decoded_frames =
-        std::move(received_frames); // 'received_frames' is now empty or in a
-                                    // valid but unspecified state
-    input.latest_frame_index = gFrameIdx;
-    tensor_inferencer->infer(input);
-    {
-      std::lock_guard<std::mutex> lock(pending_infer_mutex);
-      pending_infer_tasks++;
-    }
-    pending_infer_cv.notify_all();
+    // InferenceInput input;
+    // input.decoded_frames = std::move(received_frames);
+
+    // input.latest_frame_index = gFrameIdx;
+    // tensor_inferencer->infer(input);
+    // {
+    //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    //   pending_infer_tasks++;
+    // }
+    // pending_infer_cv.notify_all();
   }
 
   {
@@ -337,13 +329,10 @@ void VideoProcessor::onDecoderCallback(
     }
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
-    if (total_inferred_frames % 10) {
-      TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
-      taskDecodeInfo.taskId = task_id_;
-      taskDecodeInfo.decoded_frames = total_decoded_frames;
-      taskDecodeInfo.remain_frames = remaining_decode_tasks;
-      messageProxy_.sendDecodeInfo(taskDecodeInfo);
-    }
+    TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+    taskDecodeInfo.taskId = task_id_;
+    taskDecodeInfo.total = total;
+    messageProxy_.sendDecodeInfo(taskDecodeInfo);
   }
 
   task_cv.notify_all();

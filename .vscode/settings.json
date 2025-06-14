@@ -88,6 +88,15 @@
     "strstream": "cpp",
     "codecvt": "cpp",
     "source_location": "cpp",
-    "typeindex": "cpp"
+    "typeindex": "cpp",
+    "cfenv": "cpp",
+    "cinttypes": "cpp",
+    "coroutine": "cpp",
+    "csetjmp": "cpp",
+    "csignal": "cpp",
+    "numbers": "cpp",
+    "semaphore": "cpp",
+    "stdfloat": "cpp",
+    "text_encoding": "cpp"
   }
 }

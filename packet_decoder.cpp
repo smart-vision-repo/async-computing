@@ -59,7 +59,7 @@ bool PacketDecoder::initialize() {
 }
 
 void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
-                           int gopId) {
+                           int gopId, int total) {
   std::vector<AVPacket *> copied_pkts;
   for (const auto *pkt : pkts) {
     if (!pkt)
@@ -72,7 +72,7 @@ void PacketDecoder::decode(const std::vector<AVPacket *> &pkts, int interval,
 
   {
     std::lock_guard<std::mutex> lock(queueMutex);
-    taskQueue.push(DecodeTask{copied_pkts, interval, gopId});
+    taskQueue.push(DecodeTask{copied_pkts, interval, gopId, total});
   }
   queueCond.notify_one();
 }
@@ -127,7 +127,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     }
 
     pkt->stream_index = vidIdx;
-    // std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
 
     if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
@@ -200,7 +199,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 
   try {
-    callback(filtered, task.gopId);
+    callback(filtered, task.gopId, task.total);
   } catch (const std::exception &e) {
     std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
               << e.what() << std::endl;

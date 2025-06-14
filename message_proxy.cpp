@@ -49,8 +49,7 @@ void MessageProxy::sendDecodeInfo(const TaskDecodeInfo &info) {
   oss << "{"
       << "\"taskId\":\"" << info.taskId << "\","
       << "\"type\":\"" << info.type << "\","
-      << "\"decoded_frames\":" << info.decoded_frames << ","
-      << "\"remain_frames\":" << info.remain_frames << "}";
+      << "\"total\":" << info.total<< "}";
   std::string json_message = oss.str();
   sendNotificationMessage(json_message);
 }
