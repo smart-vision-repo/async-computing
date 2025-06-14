@@ -145,6 +145,7 @@ int VideoProcessor::process() {
       if (frame_idx_ > 1 && (frame_idx_ - 1) % interval_ == 0) {
         hits++;
       }
+      // 获取当前帧是否为key frame.
       bool is_key_frame = (packet->flags & AV_PKT_FLAG_KEY);
       if (is_key_frame) {
         int last_frame_in_gop = 0; // To be calculated
