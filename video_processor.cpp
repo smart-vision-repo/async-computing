@@ -101,8 +101,8 @@ bool VideoProcessor::initialize() {
   }
 
   DecoderCallback docoderCallback = [this](std::vector<cv::Mat> &frames,
-                                           int gopId, int originPackSize, int disposedFrames) {
-    this->onDecoderCallback(frames, gopId, originPackSize, disposedFrames);
+                                           int gopId, int disposedFrames) {
+    this->onDecoderCallback(frames, gopId, disposedFrames);
   };
   decoder.emplace(
       video_file_name_,
@@ -159,7 +159,7 @@ int VideoProcessor::process() {
             if (decoding_pkts.empty()) {
               clear_av_packets(&decoding_pkts);
             } else {
-              decoder->decode(decoding_pkts, interval_, frame_idx_, pool);
+              decoder->decode(decoding_pkts, interval_, frame_idx_, decoded_frames + skipped_frames);
               {
                 std::lock_guard<std::mutex> lock(task_mutex);
                 remaining_decode_tasks++;
@@ -196,18 +196,17 @@ int VideoProcessor::process() {
       std::vector<AVPacket *> decoding_pkts =
           get_packets_for_decoding(pkts, last_frame_in_gop);
       if (!decoding_pkts.empty()) {
-        decoder->decode(decoding_pkts, interval_,
-                        frame_idx_, pool); // frame_idx is total frames read
+        decoder->decode(decoding_pkts, interval_, frame_idx_, decoded_frames + skipped_frames); 
         {
           std::lock_guard<std::mutex> lock(task_mutex);
           remaining_decode_tasks++;
         }
-        all_pkts.push_back(std::move(decoding_pkts)); // Store for later cleanup
+        all_pkts.push_back(std::move(decoding_pkts)); 
       } else {
         clear_av_packets(&decoding_pkts);
       }
-      decoded_frames += last_frame_in_gop; // Statistical count
-      total_packages += last_frame_in_gop; // Statistical count
+      decoded_frames += last_frame_in_gop; 
+      total_packages += last_frame_in_gop;
     }
     total_hits += hits; // Statistical count
     pool = frame_idx_in_gop -
@@ -254,6 +253,11 @@ int VideoProcessor::process() {
   clear_av_packets(pkts);  // Clear and free packets in the current pkts list
   delete pkts;             // Delete the pkts list itself
   pkts = nullptr;
+
+  TaskDecodeInfo taskDecodeInfo = new TaskDecodeInfo();
+  taskDecodeInfo.taskId = task_id_;
+  taskDecodeInfo.total = decoded_frames + skipped_frames;
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   std::cout << "-------------------" << std::endl;
   float percentage =
@@ -304,7 +308,7 @@ void VideoProcessor::onInferPackCallback(const int count) {
 
 void VideoProcessor::onDecoderCallback(
     std::vector<cv::Mat> &received_frames,
-    int gFrameIdx, int originPackSize, int disposedFrames) { // Renamed param for clarity
+    int gFrameIdx, int total) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
@@ -327,13 +331,10 @@ void VideoProcessor::onDecoderCallback(
     }
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
-    // TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
-    // taskDecodeInfo.taskId = task_id_;
-    // taskDecodeInfo.decoded_frames = originPackSize;
-    // taskDecodeInfo.disposed_frames = disposedFrames;
-    // taskDecodeInfo.infer_frames = num_decoded_this_call;
-    // taskDecodeInfo.total = originPackSize + disposedFrames;
-    // messageProxy_.sendDecodeInfo(taskDecodeInfo);
+    TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+    taskDecodeInfo.taskId = task_id_;
+    taskDecodeInfo.total = total;
+    messageProxy_.sendDecodeInfo(taskDecodeInfo);
   }
 
   task_cv.notify_all();

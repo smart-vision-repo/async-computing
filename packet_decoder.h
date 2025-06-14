@@ -15,7 +15,7 @@ extern "C" {
 }
 
 using DecoderCallback =
-    std::function<void(std::vector<cv::Mat> &frames, int gopId, int originPackSize, int disposedFrames)>;
+    std::function<void(std::vector<cv::Mat> &frames, int gopId, int disposedFrames)>;
 
 class PacketDecoder {
 public:
@@ -30,7 +30,7 @@ private:
     std::vector<AVPacket *> pkts;
     int interval;
     int gopId;
-    int disposedFrames;
+    int total;
   };
 
   std::string video_file_name;
