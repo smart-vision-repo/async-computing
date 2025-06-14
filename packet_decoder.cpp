@@ -119,7 +119,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   std::vector<cv::Mat> decoded;
   AVFrame *frame = av_frame_alloc();
   avcodec_flush_buffers(ctx);
-  int origin_pack_size = static_cast<int>(task.pkts.size());
 
   for (AVPacket *pkt : task.pkts) {
     if (!pkt || pkt->size == 0 || !pkt->data) {

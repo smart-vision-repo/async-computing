@@ -254,7 +254,7 @@ int VideoProcessor::process() {
   delete pkts;             // Delete the pkts list itself
   pkts = nullptr;
 
-  TaskDecodeInfo taskDecodeInfo = new TaskDecodeInfo();
+  TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
   taskDecodeInfo.taskId = task_id_;
   taskDecodeInfo.total = decoded_frames + skipped_frames;
   messageProxy_.sendDecodeInfo(taskDecodeInfo);
