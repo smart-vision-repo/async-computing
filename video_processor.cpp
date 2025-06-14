@@ -300,13 +300,13 @@ void VideoProcessor::onInferPackCallback(const int count) {
     std::lock_guard<std::mutex> lock(pending_infer_mutex);
     pending_infer_tasks -= BATCH_SIZE_;
     total_inferred_frames += BATCH_SIZE_;
-    if (total_inferred_frames % BATCH_SIZE_ == 0) {
-      TaskInferInfo info = TaskInferInfo();
-      info.taskId = task_id_;
-      info.remain = pending_infer_tasks;
-      info.completed = total_inferred_frames;
-      messageProxy_.sendInferPackInfo(info);
-    }
+    // if (total_inferred_frames % BATCH_SIZE_ == 0) {
+      // TaskInferInfo info = TaskInferInfo();
+      // info.taskId = task_id_;
+      // info.remain = pending_infer_tasks;
+      // info.completed = total_inferred_frames;
+      // messageProxy_.sendInferPackInfo(info);
+    // }
   }
   pending_infer_cv.notify_all();
 }
