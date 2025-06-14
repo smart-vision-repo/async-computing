@@ -196,7 +196,7 @@ int VideoProcessor::process() {
       std::vector<AVPacket *> decoding_pkts =
           get_packets_for_decoding(pkts, last_frame_in_gop);
       if (!decoding_pkts.empty()) {
-        decoder->decode(decoding_pkts, interval_, frame_idx_, decoded_frames + skipped_frames); 
+        decoder->decode(decoding_pkts, interval_, frame_idx_, frame_idx_in_gop + pool); 
         {
           std::lock_guard<std::mutex> lock(task_mutex);
           remaining_decode_tasks++;
