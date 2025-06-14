@@ -256,7 +256,7 @@ int VideoProcessor::process() {
 
   TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
   taskDecodeInfo.taskId = task_id_;
-  taskDecodeInfo.total = decoded_frames + skipped_frames;
+  taskDecodeInfo.total = pool; 
   messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   std::cout << "-------------------" << std::endl;
