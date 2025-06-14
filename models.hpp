@@ -26,8 +26,8 @@ struct TaskDecodeInfo {
   int taskId; 
   int type = 20;
   int decoded_frames;
-  int remain_frames;
-  int global_frame_index; // Total frames processed so far
+  int disposed_frames;
+  int total;
 };
 
 // 推理过程信息

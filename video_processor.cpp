@@ -101,7 +101,7 @@ bool VideoProcessor::initialize() {
   }
 
   DecoderCallback docoderCallback = [this](std::vector<cv::Mat> &frames,
-                                           int gopId) {
+                                           int gopId, int disposedFrames) {
     this->onDecoderCallback(frames, gopId);
   };
   decoder.emplace(
@@ -155,29 +155,19 @@ int VideoProcessor::process() {
             decoded_frames += last_frame_in_gop; // Statistical count
             std::vector<AVPacket *> decoding_pkts =
                 get_packets_for_decoding(pkts, last_frame_in_gop);
-            if (!decoding_pkts.empty()) {
-              decoder->decode(
-                  decoding_pkts, interval_,
-                  frame_idx_); // frame_idx here is latest_frame_index in GOP
-                               // for context
+            if (decoding_pkts.empty()) {
+              clear_av_packets(&decoding_pkts);
+            } else {
+              decoder->decode(decoding_pkts, interval_, frame_idx_, pool);
               {
                 std::lock_guard<std::mutex> lock(task_mutex);
                 remaining_decode_tasks++;
               }
-              all_pkts.push_back(
-                  std::move(decoding_pkts)); // Store for later cleanup
-            } else {
-              // if decoding_pkts is unexpectedly empty, ensure cleanup if it
-              // allocated internally
-              clear_av_packets(&decoding_pkts); // Or just let it be if it's
-                                                // stack-allocated and empty
+              all_pkts.push_back(std::move(decoding_pkts));
             }
           }
           total_hits += hits; // Statistical count
-          pool =
-              frame_idx_in_gop -
-              last_frame_in_gop; // frame_idx_in_gop here is from previous GOP
-                                 // last_frame_in_gop from current processing
+          pool = frame_idx_in_gop - last_frame_in_gop;
         } else {
           pool += frame_idx_in_gop;
         }
@@ -301,11 +291,11 @@ void VideoProcessor::onInferPackCallback(const int count) {
     pending_infer_tasks -= BATCH_SIZE_;
     total_inferred_frames += BATCH_SIZE_;
     // if (total_inferred_frames % BATCH_SIZE_ == 0) {
-      // TaskInferInfo info = TaskInferInfo();
-      // info.taskId = task_id_;
-      // info.remain = pending_infer_tasks;
-      // info.completed = total_inferred_frames;
-      // messageProxy_.sendInferPackInfo(info);
+    // TaskInferInfo info = TaskInferInfo();
+    // info.taskId = task_id_;
+    // info.remain = pending_infer_tasks;
+    // info.completed = total_inferred_frames;
+    // messageProxy_.sendInferPackInfo(info);
     // }
   }
   pending_infer_cv.notify_all();
@@ -313,13 +303,13 @@ void VideoProcessor::onInferPackCallback(const int count) {
 
 void VideoProcessor::onDecoderCallback(
     std::vector<cv::Mat> &received_frames,
-    int gFrameIdx) { // Renamed param for clarity
+    int gFrameIdx, int disposedFrames) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
     InferenceInput input;
-    input.decoded_frames = std::move(received_frames); 
-                                 
+    input.decoded_frames = std::move(received_frames);
+
     input.latest_frame_index = gFrameIdx;
     tensor_inferencer->infer(input);
     {
@@ -336,14 +326,12 @@ void VideoProcessor::onDecoderCallback(
     }
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
-    if (total_inferred_frames % 10) {
-      TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
-      taskDecodeInfo.taskId = task_id_;
-      taskDecodeInfo.global_frame_index = gFrameIdx;
-      taskDecodeInfo.decoded_frames = total_decoded_frames;
-      taskDecodeInfo.remain_frames = remaining_decode_tasks;
-      messageProxy_.sendDecodeInfo(taskDecodeInfo);
-    }
+    TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+    taskDecodeInfo.taskId = task_id_;
+    taskDecodeInfo.decoded_frames = num_decoded_this_call;
+    taskDecodeInfo.disposed_frames = disposedFrames;
+    taskDecodeInfo.total = num_decoded_this_call + disposedFrames;
+    messageProxy_.sendDecodeInfo(taskDecodeInfo);
   }
 
   task_cv.notify_all();
