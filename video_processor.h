@@ -28,7 +28,7 @@ private:
   bool initialize();
   void onInferResultCallback(const InferenceResult &result);
   void onInferPackCallback(const int count);
-  void onDecoderCallback(std::vector<cv::Mat> &frames, int gopId, int disposedFrames);
+  void onDecoderCallback(std::vector<cv::Mat> &frames, int gopId, int originPackSize, int disposedFrames);
   void add_av_packet_to_list(std::vector<AVPacket *> **packages,
                              const AVPacket *packet);
   std::vector<AVPacket *>

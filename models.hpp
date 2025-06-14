@@ -27,6 +27,7 @@ struct TaskDecodeInfo {
   int type = 20;
   int decoded_frames;
   int disposed_frames;
+  int infer_frames;
   int total;
 };
 

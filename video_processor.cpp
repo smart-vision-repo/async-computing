@@ -101,8 +101,8 @@ bool VideoProcessor::initialize() {
   }
 
   DecoderCallback docoderCallback = [this](std::vector<cv::Mat> &frames,
-                                           int gopId, int disposedFrames) {
-    this->onDecoderCallback(frames, gopId, disposedFrames);
+                                           int gopId, int originPackSize, int disposedFrames) {
+    this->onDecoderCallback(frames, gopId, originPackSize, disposedFrames);
   };
   decoder.emplace(
       video_file_name_,
@@ -304,7 +304,7 @@ void VideoProcessor::onInferPackCallback(const int count) {
 
 void VideoProcessor::onDecoderCallback(
     std::vector<cv::Mat> &received_frames,
-    int gFrameIdx, int disposedFrames) { // Renamed param for clarity
+    int gFrameIdx, int originPackSize, int disposedFrames) { // Renamed param for clarity
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
@@ -329,9 +329,10 @@ void VideoProcessor::onDecoderCallback(
                               // has finished
     TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
     taskDecodeInfo.taskId = task_id_;
-    taskDecodeInfo.decoded_frames = num_decoded_this_call;
+    taskDecodeInfo.decoded_frames = originPackSize;
     taskDecodeInfo.disposed_frames = disposedFrames;
-    taskDecodeInfo.total = num_decoded_this_call + disposedFrames;
+    taskDecodeInfo.infer_frames = num_decoded_this_call;
+    taskDecodeInfo.total = originPackSize + disposedFrames;
     messageProxy_.sendDecodeInfo(taskDecodeInfo);
   }
 

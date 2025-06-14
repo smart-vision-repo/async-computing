@@ -119,6 +119,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   std::vector<cv::Mat> decoded;
   AVFrame *frame = av_frame_alloc();
   avcodec_flush_buffers(ctx);
+  int origin_pack_size = static_cast<int>(task.pkts.size());
 
   for (AVPacket *pkt : task.pkts) {
     if (!pkt || pkt->size == 0 || !pkt->data) {
@@ -127,7 +128,6 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
     }
 
     pkt->stream_index = vidIdx;
-    // std::cout << "[Debug] Sending pkt of size " << pkt->size << "\n";
 
     if (avcodec_send_packet(ctx, pkt) < 0)
       continue;
@@ -200,7 +200,7 @@ void PacketDecoder::decodeTask(DecodeTask task, AVCodecContext *ctx) {
   }
 
   try {
-    callback(filtered, task.gopId, task.disposedFrames);
+    callback(filtered, task.gopId, origin_pack_size, task.disposedFrames);
   } catch (const std::exception &e) {
     std::cerr << "[Error] Callback exception in GOP " << task.gopId << ": "
               << e.what() << std::endl;
