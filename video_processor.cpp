@@ -224,7 +224,7 @@ int VideoProcessor::process() {
   taskDecodeInfo.disposed_frames =pool;
   taskDecodeInfo.infer_frames = 0;
   taskDecodeInfo.total = pool;
-  messageProxy_.sendDecodeInfo(TaskDecodeInfo);
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   // Wait for all decoding and inference tasks to complete using a single lock
   // and CV
