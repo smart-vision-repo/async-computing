@@ -133,9 +133,10 @@ int VideoProcessor::process() {
 
   int gop_idx = 0, frame_idx_in_gop = 0;
   int hits = 0, pool = 0;
-  int total_hits = 0, decoded_frames = 0, skipped_frames = 0,
-      total_packages = 0; // total_packages seems to be only updated once, for
-                          // the last segment
+  int total_hits = 0;  // 跳帧条件下，累计取到的帧数.
+  int decoded_frames = 0; // 送给decoder包中解码得到的帧数.
+  int skipped_frames = 0; // 跳过的帧数.
+  int total_packages = 0; // GOP包的数量，即关键帧的数量.
   std::vector<AVPacket *> *pkts = new std::vector<AVPacket *>();
   std::vector<std::vector<AVPacket *>> all_pkts; // Used for final cleanup
 
@@ -154,8 +155,7 @@ int VideoProcessor::process() {
           last_frame_in_gop = hits * interval_ - pool;
           if (last_frame_in_gop > 0) {
             decoded_frames += last_frame_in_gop; // Statistical count
-            std::vector<AVPacket *> decoding_pkts =
-                get_packets_for_decoding(pkts, last_frame_in_gop);
+            std::vector<AVPacket *> decoding_pkts = get_packets_for_decoding(pkts, last_frame_in_gop);
             if (decoding_pkts.empty()) {
               clear_av_packets(&decoding_pkts);
             } else {
@@ -308,16 +308,16 @@ void VideoProcessor::onDecoderCallback(
   const int num_decoded_this_call = received_frames.size();
 
   if (num_decoded_this_call > 0) {
-    InferenceInput input;
-    input.decoded_frames = std::move(received_frames);
+    // InferenceInput input;
+    // input.decoded_frames = std::move(received_frames);
 
-    input.latest_frame_index = gFrameIdx;
-    tensor_inferencer->infer(input);
-    {
-      std::lock_guard<std::mutex> lock(pending_infer_mutex);
-      pending_infer_tasks++;
-    }
-    pending_infer_cv.notify_all();
+    // input.latest_frame_index = gFrameIdx;
+    // tensor_inferencer->infer(input);
+    // {
+    //   std::lock_guard<std::mutex> lock(pending_infer_mutex);
+    //   pending_infer_tasks++;
+    // }
+    // pending_infer_cv.notify_all();
   }
 
   {
@@ -327,13 +327,13 @@ void VideoProcessor::onDecoderCallback(
     }
     remaining_decode_tasks--; // One decode operation (this call to onDecoded)
                               // has finished
-    TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
-    taskDecodeInfo.taskId = task_id_;
-    taskDecodeInfo.decoded_frames = originPackSize;
-    taskDecodeInfo.disposed_frames = disposedFrames;
-    taskDecodeInfo.infer_frames = num_decoded_this_call;
-    taskDecodeInfo.total = originPackSize + disposedFrames;
-    messageProxy_.sendDecodeInfo(taskDecodeInfo);
+    // TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+    // taskDecodeInfo.taskId = task_id_;
+    // taskDecodeInfo.decoded_frames = originPackSize;
+    // taskDecodeInfo.disposed_frames = disposedFrames;
+    // taskDecodeInfo.infer_frames = num_decoded_this_call;
+    // taskDecodeInfo.total = originPackSize + disposedFrames;
+    // messageProxy_.sendDecodeInfo(taskDecodeInfo);
   }
 
   task_cv.notify_all();
