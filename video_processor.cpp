@@ -218,14 +218,6 @@ int VideoProcessor::process() {
   skipped_frames += pool; // Add final pool to skipped frames
 
 
-  TaskDecodeInfo taskDecodeInfo= TaskDecodeInfo();
-  taskDecodeInfo.taskId = task_id_;
-  taskDecodeInfo.decoded_frames = 0;
-  taskDecodeInfo.disposed_frames =pool;
-  taskDecodeInfo.infer_frames = 0;
-  taskDecodeInfo.total = pool;
-  messageProxy_.sendDecodeInfo(taskDecodeInfo);
-
   // Wait for all decoding and inference tasks to complete using a single lock
   // and CV
   std::cout << "\nWaiting for all tasks to complete..." << std::endl;
@@ -263,6 +255,16 @@ int VideoProcessor::process() {
   clear_av_packets(pkts);  // Clear and free packets in the current pkts list
   delete pkts;             // Delete the pkts list itself
   pkts = nullptr;
+
+
+  // 发送最后一个包的解码信息.
+  TaskDecodeInfo taskDecodeInfo= TaskDecodeInfo();
+  taskDecodeInfo.taskId = task_id_;
+  taskDecodeInfo.decoded_frames = 0;
+  taskDecodeInfo.disposed_frames =pool;
+  taskDecodeInfo.infer_frames = 0;
+  taskDecodeInfo.total = pool;
+  messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   std::cout << "-------------------" << std::endl;
   float percentage =
