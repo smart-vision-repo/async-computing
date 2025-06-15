@@ -1138,7 +1138,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
-  int confidence_int = static_cast<int>(det.confidence * 10000);
+  float confidence_int = std::round(det.confidence * 100.0f) / 100.0f;
 
   filename_oss << image_output_path_ << "/" << std::setprecision(0)
                << image_meta.global_frame_index << "_" << confidence_int
