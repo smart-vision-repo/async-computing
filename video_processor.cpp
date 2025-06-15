@@ -271,23 +271,12 @@ int VideoProcessor::process() {
       (frame_idx_ > 0)
           ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx_)
           : 0.0f;
-  std::cout << "Total GOPs processed: " << gop_idx << std::endl
-            << "Interval: " << interval_ << std::endl
-            << "Total packages for last segment processing: " << total_packages
-            << std::endl // Clarified meaning
-            << "Frames submitted for decoding (estimate): " << decoded_frames
-            << std::endl
-            << "Frames skipped by selection logic: " << skipped_frames
-            << std::endl
-            << "Discrepancy (Total read - submitted for decode - skipped by "
-               "logic): "
-            << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
-            << "Percentage of frames submitted for decoding from total read: "
-            << std::fixed << std::setprecision(2) << percentage << "%"
-            << std::endl
-            << "Successfully decoded frames (from callbacks): "
-            << total_decoded_frames.load() << std::endl
-            << "Extraction trigger points (hits): " << total_hits << std::endl;
+  std::cout << "Decoded: " << decoded_frames << std::endl
+            << "Skipped: " << skipped_frames << std::endl
+            << "Discrepancy : " << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
+            << "Percentage :"  << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
+            << "Inferred Frames" << total_decoded_frames.load() << std::endl
+            << "Total: " << decoded_frames + skipped_frames << std::endl;
 
   return 0;
 }
