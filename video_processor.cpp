@@ -273,9 +273,9 @@ int VideoProcessor::process() {
           : 0.0f;
   std::cout << "Decoded: " << decoded_frames << std::endl
             << "Skipped: " << skipped_frames << std::endl
+            << "Inferred: " << total_decoded_frames.load() << std::endl
+            << "Percentage :"  << std::fixed << std::setprecision(2) <<  percentage << "%" << std::endl
             << "Discrepancy : " << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
-            << "Percentage :"  << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
-            << "Inferred Frames" << total_decoded_frames.load() << std::endl
             << "Total: " << decoded_frames + skipped_frames << std::endl;
 
   return 0;
