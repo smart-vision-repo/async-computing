@@ -1138,11 +1138,12 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
-  int confidence_int = static_cast<int>(det.confidence);
+  int confidence_int = static_cast<int>(det.confidence * 10000);
 
   filename_oss << image_output_path_ << "/" << std::setprecision(0)
                << image_meta.global_frame_index << "_" << confidence_int
                << ".jpg";
+
   std::cout << filename_oss.str() << std::endl;
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (success) {
