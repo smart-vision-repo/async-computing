@@ -9,74 +9,77 @@
 #include <algorithm>
 #include <numeric>
 
-// OpenCV 头部文件，用于处理图像和几何数据，以及 KalmanFilter
+// OpenCV headers for image processing, geometry, and KalmanFilter
 #include <opencv2/opencv.hpp>
 #include <opencv2/video/tracking.hpp> // For cv::KalmanFilter
 
-// 包含 models.hpp，其中现在包含了 Detection, InferenceResult, BatchImageMetadata 等结构体
+// Contains shared struct definitions like Detection, InferenceResult, BatchImageMetadata
 #include "models.hpp"
 
 // =========================================================
-// 回调函数类型定义
+// Callback type definitions
 // =========================================================
 
-// 用于保存标注图像的回调函数，通常由 TensorInferencer 提供
-// Detection, BatchImageMetadata 是在 models.hpp 中定义的
+// Callback function for saving annotated images, typically provided by TensorInferencer
+// Detection, BatchImageMetadata are defined in models.hpp
 using ImageSaveCallback = std::function<void(const Detection&, const BatchImageMetadata&, int)>;
-// 用于报告推理结果（包括跟踪结果）的回调函数，通常由 VideoProcessor 提供
-// InferenceResult 是在 models.hpp 中定义的
+// Callback function for reporting inference results (including tracking results), typically by VideoProcessor
+// InferenceResult is defined in models.hpp
 using InferResultCallback = std::function<void(const InferenceResult&)>;
 
 
 /**
- * @brief 表示一个被跟踪的对象轨迹。
+ * @brief Represents a tracked object trajectory.
  */
 struct TrackedObject {
-    int id;                   // 唯一的跟踪 ID
-    int class_id;             // 对象的类别 ID
-    float confidence;         // 当前检测的置信度
-    cv::Rect2f bbox;          // 当前边界框 (在原始图像空间)
-    int frames_since_last_detection; // 自上次检测以来经过的帧数
-    int total_frames_tracked; // 总共被跟踪的帧数
-    int last_seen_frame_index; // 上次被检测到的全局帧索引
+    int id;                   // Unique track ID
+    int class_id;             // Object class ID
+    float confidence;         // Current detection confidence
+    cv::Rect2f bbox;          // Current bounding box (in original image space)
+    int frames_since_last_detection; // Number of frames passed since last detection
+    int total_frames_tracked; // Total frames tracked
+    int last_seen_frame_index; // Global frame index when last detected
 
-    cv::KalmanFilter kf;      // 卡尔曼滤波器实例
-    cv::Mat kf_state;         // 卡尔曼滤波器的状态向量 (x, y, w, h, vx, vy, vw, vh)
-    cv::Mat kf_meas;          // 卡尔曼滤波器的测量向量 (x, y, w, h)
+    cv::KalmanFilter kf;      // Kalman filter instance
+    cv::Mat kf_state;         // Kalman filter state vector (x, y, w, h, vx, vy, vw, vh)
+    cv::Mat kf_meas;          // Kalman filter measurement vector (x, y, w, h)
 
-    // 构造函数：从一个新的 Detection 创建一个 TrackedObject
-    TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta, int current_frame_index);
+    // Constructor: Creates a TrackedObject from a new Detection
+    // Now accepts delta_t to properly configure Kalman Filter transition matrix
+    TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta,
+                  int current_frame_index, float delta_t);
 
-    // 更新函数：用新的 Detection 更新 TrackedObject 的状态
+    // Update function: Updates TrackedObject's state with a new Detection
     void update(const Detection& det, const BatchImageMetadata& meta, int current_frame_index);
 
-    // 预测函数：使用卡尔曼滤波器预测下一帧的位置
+    // Predict function: Uses Kalman Filter to predict next frame's position
     cv::Rect2f predict();
 };
 
 /**
- * @brief 负责在视频帧之间进行目标跟踪，管理目标ID和轨迹生命周期。
+ * @brief Manages object tracking across video frames, handling object IDs and track lifecycle.
  */
 class ObjectTracker {
 public:
     /**
-     * @brief 构造函数。
-     * @param iou_threshold 用于数据关联的 IoU 阈值。
-     * @param max_disappeared_frames 一个轨迹在被移除前可以"丢失"（未检测到）的最大帧数。
-     * @param min_confidence_to_track 仅考虑置信度高于此阈值的检测结果进行跟踪。
+     * @brief Constructor.
+     * @param iou_threshold IoU threshold for data association.
+     * @param max_disappeared_frames Max number of frames a track can be "lost" (undetected) before removal.
+     * @param min_confidence_to_track Only detections above this confidence are considered for tracking.
+     * @param initial_delta_t Initial time step (e.g., frame interval) for Kalman Filter setup.
      */
-    ObjectTracker(float iou_threshold, int max_disappeared_frames, float min_confidence_to_track);
+    ObjectTracker(float iou_threshold, int max_disappeared_frames, float min_confidence_to_track, float initial_delta_t);
 
     /**
-     * @brief 核心更新方法。处理当前帧的检测结果，并更新、创建或移除跟踪轨迹。
-     * @param current_detections_from_inferencer 当前帧从推理器获得的所有检测。
-     * @param image_meta 当前图像的元数据，用于坐标转换和图像保存。
-     * @param current_global_frame_index 当前处理的全局帧索引。
-     * @param result_callback 用于报告跟踪事件的回调函数。
-     * @param save_callback 用于保存标注图像的回调函数。
-     * @param task_id 任务 ID。
-     * @param object_name 跟踪的目标对象名称。
-     * @return 包含本帧要报告的所有 InferenceResult。
+     * @brief Core update method. Processes current frame's detections and updates, creates, or removes tracks.
+     * @param current_detections_from_inferencer All detections from the inferencer for the current frame.
+     * @param image_meta Current image's metadata for coordinate transformation and image saving.
+     * @param current_global_frame_index Current global frame index being processed.
+     * @param result_callback Callback function for reporting tracking events.
+     * @param save_callback Callback function for saving annotated images.
+     * @param task_id Task ID.
+     * @param object_name Name of the object being tracked.
+     * @return Vector of InferenceResult to report for this frame.
      */
     std::vector<InferenceResult> update(
         const std::vector<Detection>& current_detections_from_inferencer,
@@ -89,22 +92,23 @@ public:
     );
 
 private:
-    float iou_threshold_;          // IoU 匹配阈值
-    int max_disappeared_frames_;   // 轨迹消失的最大帧数
-    float min_confidence_to_track_;// 用于跟踪的最小置信度
+    float iou_threshold_;          // IoU matching threshold
+    int max_disappeared_frames_;   // Max frames a track can disappear
+    float min_confidence_to_track_;// Minimum confidence for tracking
 
-    std::map<int, TrackedObject> active_tracks_; // 当前活跃的跟踪轨迹
-    int next_track_id_;                        // 用于生成新的唯一轨迹 ID
+    std::map<int, TrackedObject> active_tracks_; // Currently active tracks
+    int next_track_id_;                        // Counter for unique track IDs
+    float fixed_delta_t_;                      // Fixed time step (e.g., interval) for KF prediction
 
     /**
-     * @brief 计算两个边界框之间的 IoU (Intersection over Union)。
-     * @param bbox1 第一个边界框。
-     * @param bbox2 第二个边界框。
-     * @return IoU 值。
+     * @brief Calculates IoU (Intersection over Union) between two bounding boxes.
+     * @param bbox1 First bounding box.
+     * @param bbox2 Second bounding box.
+     * @return IoU value.
      */
     float calculateIoU(const cv::Rect2f& bbox1, const cv::Rect2f& bbox2) const;
 
-    // 内部 helper 函数，用于生成 InferenceResult
+    // Internal helper function for generating InferenceResult
     void generateAndReportResult(
         int taskId,
         int frameIndex,
@@ -114,7 +118,7 @@ private:
         float confidence,
         const std::string& message,
         InferResultCallback result_callback,
-        std::vector<InferenceResult>& results_to_report // 传递引用以添加结果
+        std::vector<InferenceResult>& results_to_report // Pass by reference to add results
     ) const;
 };
 

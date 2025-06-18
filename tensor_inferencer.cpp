@@ -19,7 +19,7 @@
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudawarping.hpp>
 
-// Include the ObjectTracker header
+// Includes ObjectTracker header
 #include "object_tracker.hpp" // This header should now correctly include models.hpp
 
 using namespace nvinfer1;
@@ -61,17 +61,17 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
                                    InferResultCallback resultCallback,
                                    InferPackCallback packCallback)
     : // Initializer list order matches declaration order in .hpp
-      task_id_(task_id), object_name_(object_name), interval_(interval),
+      task_id_(task_id), object_name_(object_name), interval_(interval), // interval_ is the dt
       confidence_(confidence), BATCH_SIZE_(1), target_w_(0), target_h_(0),
       runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
       num_classes_(0), result_callback_(resultCallback),
       pack_callback_(packCallback), constant_metadata_initialized_(false),
-      // Initialize the ObjectTracker here
-      // IoU threshold: 0.45f (可以根据实际效果调整)
-      // Max disappeared frames: 3 (意味着 3 * interval_ 原始帧，可以根据实际效果调整)
-      // Min confidence to track: 0.25f (检测置信度低于此值的不会被跟踪器考虑)
-      object_tracker_(std::make_unique<ObjectTracker>(0.45f, 3, 0.25f))
+      // Initialize the ObjectTracker here. Pass interval_ as delta_t.
+      // IoU threshold: 0.45f
+      // Max disappeared frames: 3 (meaning 3 * interval_ original frames)
+      // Min confidence to track: 0.25f (a detection must be at least this confident to be considered by the tracker)
+      object_tracker_(std::make_unique<ObjectTracker>(0.45f, 3, 0.25f, static_cast<float>(interval))) // Pass interval_ as delta_t
 {
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
@@ -960,9 +960,8 @@ void TensorInferencer::process_single_output(
 float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
   float x1_intersect = std::max(a.x1, b.x1);
   float y1_intersect = std::max(a.y1, b.y1);
-  float x2_intersect = std::min(a.x2, b.x2); 
-  float y2_intersect = std::min(a.y2, b.y2); 
-
+  float x2_intersect = std::min(a.x2, b.x2);
+  float y2_intersect = std::min(a.y2, b.y2);
   if (x2_intersect <= x1_intersect || y2_intersect <= y1_intersect)
     return 0.0f;
   float intersection_area =
@@ -1080,12 +1079,12 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
               cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
 
   /**
-   * 文件名:
-   * 1. 全局帧位置
-   * 2. 预估时间
-   * 3. 置信率
-   * 4. 在GOP包中的位置
-   * 5. 检测对象名称
+   * Filename structure:
+   * 1. Global frame index
+   * 2. Estimated time
+   * 3. Confidence
+   * 4. Position in GOP package
+   * 5. Detected object name
    * 6. (Optional) Tracking ID or status
    */
 
@@ -1093,8 +1092,6 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   float timestamp_sec =
       static_cast<float>(image_meta.global_frame_index) / 30.0f;
 
-  // Confidence is already float in InferenceResult
-  // For filename, it was integer, let's keep it consistent
   int confidence_int = static_cast<int>(det.confidence * 10000);
 
   // Include tracking ID in filename for clarity if available
