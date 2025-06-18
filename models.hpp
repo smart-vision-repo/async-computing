@@ -1,4 +1,4 @@
-// inference_input.hpp
+// models.hpp (Updated)
 #pragma once
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -60,6 +60,9 @@ struct Detection {
     int class_id;          // Class ID
     int batch_idx;         // Index within the batch
     std::string status_info; // Additional status info, e.g., for tracker to mark ID
+
+    // Convenience members for Kalman Filter
+    float x, y, width, height; // Center_x, center_y, width, height
 
     // Member function to convert Detection coordinates to cv::Rect2f
     // and apply inverse letterbox transform to original image space.

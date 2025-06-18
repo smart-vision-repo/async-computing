@@ -1,3 +1,4 @@
+// tensor_inferencer.hpp (Updated)
 #ifndef TENSOR_INFERENCER_HPP
 #define TENSOR_INFERENCER_HPP
 
@@ -14,7 +15,7 @@
 
 // Contains shared struct definitions like Detection, InferenceResult, BatchImageMetadata
 #include "models.hpp"
-// Includes ObjectTracker class definition
+// Includes ObjectTracker class definition. This now also brings in the callback definitions.
 #include "object_tracker.hpp"
 
 // Forward declaration of the logger
@@ -27,20 +28,13 @@ class IExecutionContext;
 } // namespace nvinfer1
 
 /**
- * @brief Inference input data structure.
- * (This struct is now moved to models.hpp, comment here for compatibility only)
- */
-// struct InferenceInput {
-//     std::vector<cv::Mat> decoded_frames; // Batch decoded frames
-//     int latest_frame_index;              // Global index of the latest frame in the current batch
-// };
-
-/**
  * @brief Callback function definitions.
+ * Moved here from object_tracker.hpp to define them at a more global scope for TensorInferencer.
  */
 // Callback for reporting inference results (now triggered by ObjectTracker)
-// InferenceResult is now defined in models.hpp
 using InferResultCallback = std::function<void(const InferenceResult&)>;
+// Callback for saving annotated images (now triggered by ObjectTracker)
+using ImageSaveCallback = std::function<void(const Detection&, const BatchImageMetadata&, int)>;
 // Callback for reporting inference batch completion info
 using InferPackCallback = std::function<void(const int&)>;
 
@@ -161,14 +155,12 @@ private:
      * @param num_detections_in_slice Number of detections for this image.
      * @param num_attributes_per_detection Number of attributes per detection.
      * @param original_batch_idx_for_debug Original batch index for debugging.
-     * @param frame_results Vector to store inference results (populated by ObjectTracker).
      */
     void process_single_output(const BatchImageMetadata &image_meta,
                                const float *host_output_for_image_raw,
                                int num_detections_in_slice,
                                int num_attributes_per_detection,
-                               int original_batch_idx_for_debug,
-                               std::vector<InferenceResult> &frame_results);
+                               int original_batch_idx_for_debug); // No longer needs frame_results param
 
     /**
      * @brief Calculates IoU between two detection boxes.
@@ -193,7 +185,7 @@ private:
      * @brief Saves an annotated image with bounding boxes.
      * @param det Detection result.
      * @param image_meta Image metadata.
-     * @param detection_idx_in_image Index of the detection in the image.
+     * @param detection_idx_in_image Index of the detection in the image (used here for track_id primarily)
      */
     // Detection and BatchImageMetadata structs are now defined in models.hpp
     void saveAnnotatedImage(const Detection &det,

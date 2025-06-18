@@ -1,3 +1,4 @@
+// tensor_inferencer.cpp (Updated)
 #include "tensor_inferencer.hpp"
 #include <algorithm>
 #include <cassert>
@@ -718,6 +719,10 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
                 << std::endl;
       return;
     }
+    // YOLO output typically is [batch_size, num_attributes_per_det, num_detections_per_image]
+    // or [batch_size, num_detections_per_image, num_attributes_per_det]
+    // Based on the code, it's [batch, attributes, detections_count] as transposed later.
+    // So d[1] is attributes and d[2] is detections_count
     num_attributes_from_engine = outDimsRuntime.d[1];
     num_detections_per_image_from_engine = outDimsRuntime.d[2];
 
@@ -848,10 +853,9 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
             num_detections_per_image_from_engine;
 
     // Call the modified process_single_output to feed data to ObjectTracker
-    std::vector<InferenceResult> results_from_tracker; // This will be populated by the tracker
     process_single_output(frame_meta, output_for_this_image_start,
                           num_detections_per_image_from_engine,
-                          num_attributes_from_engine, i, results_from_tracker);
+                          num_attributes_from_engine, i);
 
     // The results_from_tracker now contains the filtered and tracked results
     // (e.g., new object, updated object, object disappeared).
@@ -865,8 +869,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
-    int num_attributes_per_detection, int original_batch_idx_for_debug,
-    std::vector<InferenceResult> &frame_results) { // frame_results now passed by tracker
+    int num_attributes_per_detection, int original_batch_idx_for_debug) { // frame_results now passed by tracker
 
   // Transpose the raw output (same as before)
   std::vector<float> transposed_output(
@@ -928,7 +931,8 @@ void TensorInferencer::process_single_output(
         raw_detections_for_tracker.push_back({x1_model, y1_model, x2_model, y2_model,
                                                max_score, best_class_id,
                                                original_batch_idx_for_debug,
-                                               image_meta.is_real_image ? "REAL" : "PAD"});
+                                               image_meta.is_real_image ? "REAL" : "PAD",
+                                               cx, cy, w, h}); // Include cx, cy, w, h
       }
     }
   }
@@ -940,7 +944,7 @@ void TensorInferencer::process_single_output(
   // Pass these NMS-processed detections to the ObjectTracker
   // The ObjectTracker will handle track management, result reporting, and image saving.
   // It will return the results that need to be reported for this frame.
-  frame_results = object_tracker_->update(
+  object_tracker_->update(
       nms_detections,
       image_meta,
       image_meta.global_frame_index,
@@ -1089,8 +1093,8 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
    */
 
   std::ostringstream filename_oss;
-  float timestamp_sec =
-      static_cast<float>(image_meta.global_frame_index) / 30.0f;
+  // float timestamp_sec = // This was not used and is already handled by frameIndex * (1/FPS) for report
+  //     static_cast<float>(image_meta.global_frame_index) / 30.0f; // Assuming 30 FPS
 
   int confidence_int = static_cast<int>(det.confidence * 10000);
 
