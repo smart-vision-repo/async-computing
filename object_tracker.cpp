@@ -1,4 +1,4 @@
-#include "object_tracker.hpp" // Now correctly includes models.hpp implicitly
+#include "object_tracker.hpp"
 #include <iostream>
 #include <set>
 #include <iomanip> // For std::fixed, std::setprecision
@@ -7,30 +7,104 @@
 // 结构体方法实现
 // =========================================================
 
-// Detection::toCvRect2f 的实现现在放在 models.hpp 中，所以这里不再需要
+// Detection::toCvRect2f 的实现现在放在 models.hpp 中
 
 TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta, int current_frame_index)
     : id(new_id), class_id(det.class_id), confidence(det.confidence), frames_since_last_detection(0),
       total_frames_tracked(1), last_seen_frame_index(current_frame_index) {
     // 初始边界框在原始图像空间
     bbox = det.toCvRect2f(meta);
-    // 如果使用卡尔曼滤波器，这里进行初始化：kalman_filter = std::make_unique<KalmanFilterWrapper>(bbox);
+
+    // =========================================
+    // Kalman Filter Initialization
+    // State: [x, y, w, h, vx, vy, vw, vh] (8 elements)
+    // Measurement: [x, y, w, h] (4 elements)
+    // =========================================
+    kf.init(8, 4, 0); // 8 state variables, 4 measurement variables, 0 control variables
+
+    // Transition matrix (A) - Constant velocity model
+    // x_k = x_{k-1} + dt * vx_{k-1}
+    // y_k = y_{k-1} + dt * vy_{k-1}
+    // w_k = w_{k-1} + dt * vw_{k-1}
+    // h_k = h_{k-1} + dt * vh_{k-1}
+    // vx_k = vx_{k-1}
+    // vy_k = vy_{k-1}
+    // vw_k = vw_{k-1}
+    // vh_k = vh_{k-1}
+    kf.transitionMatrix = (cv::Mat_<float>(8, 8) <<
+        1, 0, 0, 0, 1, 0, 0, 0,  // x
+        0, 1, 0, 0, 0, 1, 0, 0,  // y
+        0, 0, 1, 0, 0, 0, 1, 0,  // w
+        0, 0, 0, 1, 0, 0, 0, 1,  // h
+        0, 0, 0, 0, 1, 0, 0, 0,  // vx
+        0, 0, 0, 0, 0, 1, 0, 0,  // vy
+        0, 0, 0, 0, 0, 0, 1, 0,  // vw
+        0, 0, 0, 0, 0, 0, 0, 1   // vh
+    );
+
+    // Measurement matrix (H) - Only measure position and size (x, y, w, h)
+    kf.measurementMatrix = (cv::Mat_<float>(4, 8) <<
+        1, 0, 0, 0, 0, 0, 0, 0,
+        0, 1, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 0, 0, 0, 0, 0,
+        0, 0, 0, 1, 0, 0, 0, 0
+    );
+
+    // Process noise covariance matrix (Q) - How much state changes between steps
+    // Adjust these values based on observed object movement
+    float process_noise_pos = 1.0f; // Position noise
+    float process_noise_vel = 0.1f; // Velocity noise
+    kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
+        process_noise_pos, 0, 0, 0, 0, 0, 0, 0,
+        0, process_noise_pos, 0, 0, 0, 0, 0, 0,
+        0, 0, process_noise_pos, 0, 0, 0, 0, 0,
+        0, 0, 0, process_noise_pos, 0, 0, 0, 0,
+        0, 0, 0, 0, process_noise_vel, 0, 0, 0,
+        0, 0, 0, 0, 0, process_noise_vel, 0, 0,
+        0, 0, 0, 0, 0, 0, process_noise_vel, 0,
+        0, 0, 0, 0, 0, 0, 0, process_noise_vel
+    );
+
+    // Measurement noise covariance matrix (R) - How much noise in measurements (detections)
+    // Adjust based on detection accuracy
+    float measurement_noise = 10.0f; // BBox measurement noise
+    kf.measurementNoiseCov = (cv::Mat_<float>(4, 4) <<
+        measurement_noise, 0, 0, 0,
+        0, measurement_noise, 0, 0,
+        0, 0, measurement_noise, 0,
+        0, 0, 0, measurement_noise
+    );
+
+    // Error covariance matrix (P) - Initial uncertainty in state estimation
+    setIdentity(kf.errorCovPost); // Start with high uncertainty
+
+    // Set initial state from the first detection
+    kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0); // Initial velocities are zero
+    kf.statePost = kf_state;
+
+    // Set initial measurement
+    kf_meas = (cv::Mat_<float>(4, 1) << bbox.x, bbox.y, bbox.width, bbox.height);
 }
 
 void TrackedObject::update(const Detection& det, const BatchImageMetadata& meta, int current_frame_index) {
-    // 更新边界框，同样在原始图像空间
+    // Update bbox, also in original image space
     bbox = det.toCvRect2f(meta);
     confidence = det.confidence;
-    frames_since_last_detection = 0; // 重置未检测到计数
+    frames_since_last_detection = 0; // Reset disappeared count
     total_frames_tracked++;
     last_seen_frame_index = current_frame_index;
-    // 如果使用卡尔曼滤波器，这里进行更新：kalman_filter->update(bbox);
+
+    // Kalman Filter Update (Correction Step)
+    kf_meas = (cv::Mat_<float>(4, 1) << bbox.x, bbox.y, bbox.width, bbox.height);
+    kf.correct(kf_meas); // Correct state based on new measurement
 }
 
-cv::Rect2f TrackedObject::predict() const {
-    // 如果使用卡尔曼滤波器，这里进行预测：return kalman_filter->predict();
-    // 简化：直接返回当前边界框作为预测值
-    return bbox;
+cv::Rect2f TrackedObject::predict() {
+    // Kalman Filter Predict Step
+    kf_state = kf.predict(); // Predict next state
+    // Return predicted bounding box
+    return cv::Rect2f(kf_state.at<float>(0), kf_state.at<float>(1),
+                      kf_state.at<float>(2), kf_state.at<float>(3));
 }
 
 
@@ -66,12 +140,12 @@ std::vector<InferenceResult> ObjectTracker::update(
     }
 
     // 2. 处理填充帧或无检测的情况
-    if (!image_meta.is_real_image) { // 如果是填充帧，则不进行跟踪更新
-        // 简单递增所有活跃轨迹的 frames_since_last_detection
+    if (!image_meta.is_real_image) { // If it's a padding frame, do not update tracker based on detections
+        // Simply increment frames_since_last_detection for all active tracks
         for (auto& pair : active_tracks_) {
             pair.second.frames_since_last_detection++;
         }
-        // 移除长时间未检测到的轨迹
+        // Remove tracks that have disappeared for too long
         for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
             if (it->second.frames_since_last_detection > max_disappeared_frames_) {
                 std::cout << "[ObjectTracker] Track " << it->second.id << " (" << object_name
@@ -91,47 +165,54 @@ std::vector<InferenceResult> ObjectTracker::update(
         return results_to_report;
     }
 
-    // 3. 预测所有活跃轨迹的下一帧位置（如果使用卡尔曼滤波器，这里会更复杂）
-    std::map<int, cv::Rect2f> predicted_bboxes; // 轨迹ID -> 预测的BBox
-    for (const auto& pair : active_tracks_) {
+    // 3. 预测所有活跃轨迹的下一帧位置
+    std::map<int, cv::Rect2f> predicted_bboxes; // Track ID -> Predicted BBox (in original image space)
+    for (auto& pair : active_tracks_) { // Iterate by reference to allow KF predict to update kf_state internally
         predicted_bboxes[pair.first] = pair.second.predict();
     }
 
-    // 4. 数据关联：将当前帧的检测与预测的轨迹进行匹配 (简单贪婪匹配)
-    // 更好的做法是使用匈牙利算法来解决多对多匹配
+    // 4. Data Association: Matching detections to predicted tracks (Greedy Matching)
+    // For more robust multi-object tracking, consider using the Hungarian algorithm here.
     std::vector<std::pair<int, int>> matches; // (filtered_detection_idx, track_id)
-    std::set<int> unmatched_detections_indices; // 未匹配的检测索引
+    std::set<int> unmatched_detections_indices; // Indices of detections that haven't been matched
     for(int i = 0; i < filtered_detections.size(); ++i) {
         unmatched_detections_indices.insert(i);
     }
-    std::set<int> unmatched_tracks_ids; // 未匹配的轨迹ID
+    std::set<int> unmatched_tracks_ids; // IDs of tracks that haven't found a match
     for(const auto& pair : active_tracks_) {
         unmatched_tracks_ids.insert(pair.first);
     }
 
-    // 优先匹配，最大化 IoU
-    for (int det_idx : unmatched_detections_indices) { // 遍历未匹配的检测
+    // Greedy matching strategy: For each unmatched detection, find the best unmatched track
+    // (based on IoU with predicted bbox) that exceeds the iou_threshold.
+    // Loop through detections
+    for (int det_idx : unmatched_detections_indices) { // Iterate through detections
         float max_iou = 0.0f;
         int best_track_id = -1;
-        // 注意：这里是对 `unmatched_tracks_ids` 的拷贝进行迭代，因为我们会在循环内部修改 `unmatched_tracks_ids`
-        std::vector<int> current_unmatched_tracks(unmatched_tracks_ids.begin(), unmatched_tracks_ids.end());
-        for (int track_id : current_unmatched_tracks) {
+        
+        // Loop through unmatched tracks to find the best match for current detection
+        // Create a copy to iterate because unmatched_tracks_ids might be modified inside the loop
+        std::vector<int> current_unmatched_tracks_copy(unmatched_tracks_ids.begin(), unmatched_tracks_ids.end());
+        for (int track_id : current_unmatched_tracks_copy) {
+            // Calculate IoU between the current detection (converted to original image space)
+            // and the predicted bounding box of the track.
             float iou = calculateIoU(filtered_detections[det_idx].toCvRect2f(image_meta), predicted_bboxes[track_id]);
+            
             if (iou > max_iou && iou >= iou_threshold_) {
                 max_iou = iou;
                 best_track_id = track_id;
             }
         }
+
         if (best_track_id != -1) {
             matches.push_back({det_idx, best_track_id});
-            unmatched_detections_indices.erase(det_idx);
-            unmatched_tracks_ids.erase(best_track_id);
-            // 确保一旦匹配，就不再将其视为未匹配轨迹
+            unmatched_detections_indices.erase(det_idx); // Mark detection as matched
+            unmatched_tracks_ids.erase(best_track_id);   // Mark track as matched
         }
     }
 
 
-    // 5. 更新已匹配的轨迹
+    // 5. Update Matched Tracks
     for (const auto& match : matches) {
         int det_idx = match.first;
         int track_id = match.second;
@@ -139,7 +220,10 @@ std::vector<InferenceResult> ObjectTracker::update(
 
         tracked_obj.update(filtered_detections[det_idx], image_meta, current_global_frame_index);
 
-        // 报告更新事件
+        // Report update event (e.g., if position significantly changed, or periodic report)
+        // For simplicity, always report when tracked and matched
+        std::cout << "[ObjectTracker] Track " << track_id << " (" << object_name
+                  << ") updated. Frame: " << current_global_frame_index << std::endl;
         generateAndReportResult(
             task_id, current_global_frame_index, static_cast<float>(current_global_frame_index) / 30.0f,
             track_id, tracked_obj.bbox, tracked_obj.confidence,
@@ -147,13 +231,13 @@ std::vector<InferenceResult> ObjectTracker::update(
             result_callback, results_to_report
         );
 
-        // 调用图像保存回调，附带跟踪ID信息
+        // Call image save callback, with tracking ID info
         Detection det_for_save = filtered_detections[det_idx];
         det_for_save.status_info = "TRACKID_" + std::to_string(track_id);
-        save_callback(det_for_save, image_meta, 0); // 0 为示例索引
+        save_callback(det_for_save, image_meta, 0); // 0 is example index
     }
 
-    // 6. 为未匹配的检测创建新轨迹
+    // 6. Create New Tracks for Unmatched Detections
     for (int det_idx : unmatched_detections_indices) {
         int new_id = next_track_id_++;
         active_tracks_.emplace(new_id, TrackedObject(new_id, filtered_detections[det_idx], image_meta, current_global_frame_index));
@@ -167,16 +251,16 @@ std::vector<InferenceResult> ObjectTracker::update(
             result_callback, results_to_report
         );
 
-        // 调用图像保存回调，附带新轨迹ID信息
+        // Call image save callback, with new track ID info
         Detection det_for_save = filtered_detections[det_idx];
         det_for_save.status_info = "NEWID_" + std::to_string(new_id);
-        save_callback(det_for_save, image_meta, 0); // 0 为示例索引
+        save_callback(det_for_save, image_meta, 0); // 0 is example index
     }
 
-    // 7. 递增未匹配轨迹的 frames_since_last_detection
-    //    并在必要时移除长时间未检测到的轨迹
+    // 7. Increment frames_since_last_detection for Unmatched Tracks
+    //    and remove tracks that have disappeared for too long
     for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
-        if (unmatched_tracks_ids.count(it->first)) { // 如果该轨迹未在当前帧匹配到
+        if (unmatched_tracks_ids.count(it->first)) { // If this track was not matched in the current frame
             it->second.frames_since_last_detection++;
         }
 
@@ -234,7 +318,7 @@ void ObjectTracker::generateAndReportResult(
     res.seconds = seconds;
     res.tracked_id = tracked_id;
     res.bbox_orig_img_space = bbox_orig_img_space;
-    res.confidence = static_cast<int>(confidence * 10000);
+    res.confidence = confidence; // Store as float
     res.info = message + ". Coords (original_image_space): ["
                + std::to_string(static_cast<int>(bbox_orig_img_space.x)) + ","
                + std::to_string(static_cast<int>(bbox_orig_img_space.y)) + ","

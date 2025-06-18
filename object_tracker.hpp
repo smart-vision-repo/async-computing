@@ -4,13 +4,14 @@
 #include <vector>
 #include <map>
 #include <string>
-#include <memory>
+#include <memory> // For std::unique_ptr
 #include <functional>
 #include <algorithm>
 #include <numeric>
 
-// OpenCV 头部文件，用于处理图像和几何数据
+// OpenCV 头部文件，用于处理图像和几何数据，以及 KalmanFilter
 #include <opencv2/opencv.hpp>
+#include <opencv2/video/tracking.hpp> // For cv::KalmanFilter
 
 // 包含 models.hpp，其中现在包含了 Detection, InferenceResult, BatchImageMetadata 等结构体
 #include "models.hpp"
@@ -39,15 +40,18 @@ struct TrackedObject {
     int total_frames_tracked; // 总共被跟踪的帧数
     int last_seen_frame_index; // 上次被检测到的全局帧索引
 
+    cv::KalmanFilter kf;      // 卡尔曼滤波器实例
+    cv::Mat kf_state;         // 卡尔曼滤波器的状态向量 (x, y, w, h, vx, vy, vw, vh)
+    cv::Mat kf_meas;          // 卡尔曼滤波器的测量向量 (x, y, w, h)
+
     // 构造函数：从一个新的 Detection 创建一个 TrackedObject
     TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta, int current_frame_index);
 
     // 更新函数：用新的 Detection 更新 TrackedObject 的状态
     void update(const Detection& det, const BatchImageMetadata& meta, int current_frame_index);
 
-    // 预测函数：如果使用卡尔曼滤波器，这里可以预测下一帧的位置
-    // 目前简化为返回当前位置
-    cv::Rect2f predict() const;
+    // 预测函数：使用卡尔曼滤波器预测下一帧的位置
+    cv::Rect2f predict();
 };
 
 /**
