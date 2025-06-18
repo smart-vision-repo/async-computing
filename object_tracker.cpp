@@ -382,4 +382,3 @@ void ObjectTracker::generateAndReportResult(
     results_to_report.push_back(res); // Add to the list to be returned
     result_callback(res); // Also trigger the immediate callback
 }
-
