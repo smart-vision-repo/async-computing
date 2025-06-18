@@ -9,6 +9,7 @@
 #include <iostream>
 #include <numeric>
 #include <sstream>
+#include <set> // Added for NMS in process_single_output if needed before tracker
 
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -17,6 +18,9 @@
 #include <opencv2/cudaarithm.hpp>
 #include <opencv2/cudaimgproc.hpp>
 #include <opencv2/cudawarping.hpp>
+
+// Include the ObjectTracker header
+#include "object_tracker.hpp" // Assumes object_tracker.hpp defines Detection, InferenceResult, BatchImageMetadata
 
 using namespace nvinfer1;
 
@@ -62,7 +66,13 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
       runtime_(nullptr), engine_(nullptr), context_(nullptr), inputIndex_(-1),
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
       num_classes_(0), result_callback_(resultCallback),
-      pack_callback_(packCallback), constant_metadata_initialized_(false) {
+      pack_callback_(packCallback), constant_metadata_initialized_(false),
+      // Initialize the ObjectTracker here
+      // IoU threshold: 0.45f
+      // Max disappeared frames: 3 (meaning 3 * interval_ original frames)
+      // Min confidence to track: 0.25f (a detection must be at least this confident to be considered by the tracker)
+      object_tracker_(std::make_unique<ObjectTracker>(0.45f, 3, 0.25f))
+{
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -424,6 +434,8 @@ bool TensorInferencer::infer(const InferenceInput &input) {
     }
 
     meta.original_image_for_callback = current_frame_mat.clone();
+    // Calculate global frame index based on current latest_frame_index, number of frames in input, and interval
+    // This is important for tracking as it gives a true time progression.
     meta.global_frame_index = input.latest_frame_index -
                               (((num_frames_in_input - 1) - i) * interval_);
 
@@ -560,7 +572,7 @@ convert_to_rgb_and_normalize: // Common processing path for real (after
   int plane_size_elements = model_input_h * model_input_w;
   cv::cuda::GpuMat chw_output_temp(1, plane_size_elements * 3, CV_32F);
 
-  // 使用临时 GpuMat 拼接 3 个通道到 chw 格式中
+  // Using temporary GpuMat to concatenate 3 channels into CHW format
   gpu_planes[0].reshape(1, 1).copyTo(
       chw_output_temp.colRange(0, plane_size_elements));
   gpu_planes[1].reshape(1, 1).copyTo(
@@ -568,7 +580,7 @@ convert_to_rgb_and_normalize: // Common processing path for real (after
   gpu_planes[2].reshape(1, 1).copyTo(chw_output_temp.colRange(
       2 * plane_size_elements, 3 * plane_size_elements));
 
-  // 将数据从临时 GpuMat 拷贝到 TensorRT 指定的显存区域
+  // Copy data from temporary GpuMat to the GPU memory area specified by TensorRT
   cudaMemcpy(chw_planar_output_gpu_buffer_slice.ptr<float>(),
              chw_output_temp.ptr<float>(),
              plane_size_elements * 3 * sizeof(float), cudaMemcpyDeviceToDevice);
@@ -808,6 +820,7 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
   }
 
   // Post-process only the actual real frames that were part of this batch
+  // Now, this loop prepares data for the ObjectTracker and calls it.
   for (int i = 0; i < frames_to_preprocess_count; ++i) {
     const BatchImageMetadata &frame_meta = temp_metadata_for_this_batch[i];
 
@@ -833,22 +846,28 @@ void TensorInferencer::performBatchInference(bool pad_batch) {
         static_cast<size_t>(i) * num_attributes_from_engine *
             num_detections_per_image_from_engine;
 
-    std::vector<InferenceResult> single_frame_results;
+    // Call the modified process_single_output to feed data to ObjectTracker
+    std::vector<InferenceResult> results_from_tracker; // This will be populated by the tracker
     process_single_output(frame_meta, output_for_this_image_start,
                           num_detections_per_image_from_engine,
-                          num_attributes_from_engine, i, single_frame_results);
+                          num_attributes_from_engine, i, results_from_tracker);
+
+    // The results_from_tracker now contains the filtered and tracked results
+    // (e.g., new object, updated object, object disappeared).
+    // The ObjectTracker internally calls result_callback_ and saveAnnotatedImage.
   }
   pack_callback_(frames_to_preprocess_count);
 }
 
-// 修改后的
-// process_single_output：支持多类检测，仅打印被最终认为是目标类的检测框
+// 修改后的 process_single_output：现在主要负责解析模型输出，进行初步筛选和NMS，
+// 然后将结果传递给 ObjectTracker。
 void TensorInferencer::process_single_output(
     const BatchImageMetadata &image_meta,
     const float *host_output_for_image_raw, int num_detections_in_slice,
     int num_attributes_per_detection, int original_batch_idx_for_debug,
-    std::vector<InferenceResult> &frame_results) {
+    std::vector<InferenceResult> &frame_results) { // frame_results now passed by tracker
 
+  // Transpose the raw output (same as before)
   std::vector<float> transposed_output(
       static_cast<size_t>(num_detections_in_slice) *
       num_attributes_per_detection);
@@ -864,9 +883,19 @@ void TensorInferencer::process_single_output(
     }
   }
 
-  float confidence_threshold = this->confidence_;
-  std::vector<Detection> detected_objects;
+  // Find the target class ID
+  auto it = class_name_to_id_.find(this->object_name_);
+  if (it == class_name_to_id_.end()) {
+    std::cerr << "[错误][ProcessOutput] (Frame: "
+              << image_meta.global_frame_index << ") 目标对象名称 '"
+              << this->object_name_ << "' 在类别名称中未找到。跳过跟踪。" << std::endl;
+    // Potentially add a result indicating error if needed
+    return;
+  }
+  int target_class_id = it->second;
 
+  // Collect raw detections for the target class that meet inference confidence
+  std::vector<Detection> raw_detections_for_tracker;
   for (int i = 0; i < num_detections_in_slice; ++i) {
     const float *det_attrs = &transposed_output[static_cast<size_t>(i) *
                                                 num_attributes_per_detection];
@@ -874,14 +903,15 @@ void TensorInferencer::process_single_output(
     float max_score = -1.0f;
     int best_class_id = -1;
     for (int j = 0; j < num_classes_; ++j) {
-      float score = det_attrs[4 + j];
+      float score = det_attrs[4 + j]; // Class scores start from index 4
       if (score > max_score) {
         max_score = score;
         best_class_id = j;
       }
     }
 
-    if (max_score >= confidence_threshold) {
+    // Filter by target class and initial inference confidence
+    if (best_class_id == target_class_id && max_score >= this->confidence_) {
       float cx = det_attrs[0];
       float cy = det_attrs[1];
       float w = det_attrs[2];
@@ -894,103 +924,36 @@ void TensorInferencer::process_single_output(
           std::min(static_cast<float>(target_h_ - 1), cy + h / 2.0f);
 
       if (x2_model > x1_model && y2_model > y1_model) {
-        detected_objects.push_back({x1_model, y1_model, x2_model, y2_model,
-                                    max_score, best_class_id,
-                                    original_batch_idx_for_debug,
-                                    image_meta.is_real_image ? "REAL" : "PAD"});
+        raw_detections_for_tracker.push_back({x1_model, y1_model, x2_model, y2_model,
+                                               max_score, best_class_id,
+                                               original_batch_idx_for_debug,
+                                               image_meta.is_real_image ? "REAL" : "PAD"});
       }
     }
   }
 
-  // 执行 class-wise NMS，并只保留目标类别的检测结果
-  auto it = class_name_to_id_.find(this->object_name_);
-  if (it == class_name_to_id_.end()) {
-    std::cerr << "[错误][ProcessOutput] (Frame: "
-              << image_meta.global_frame_index << ") 目标对象名称 '"
-              << this->object_name_ << "' 在类别名称中未找到。" << std::endl;
-    return;
-  }
-  int target_class_id = it->second;
+  // Apply NMS to the collected raw detections for the current frame
+  // This helps reduce redundant detections before feeding to the tracker
+  std::vector<Detection> nms_detections = applyNMS(raw_detections_for_tracker, 0.45f); // Using 0.45f NMS threshold
 
-  std::vector<Detection> filtered;
-  for (const auto &d : detected_objects) {
-    if (d.class_id == target_class_id) {
-      filtered.push_back(d);
-    }
-  }
-  std::vector<Detection> nms_detections = applyNMS(filtered, 0.45f);
+  // Pass these NMS-processed detections to the ObjectTracker
+  // The ObjectTracker will handle track management, result reporting, and image saving.
+  // It will return the results that need to be reported for this frame.
+  frame_results = object_tracker_->update(
+      nms_detections,
+      image_meta,
+      image_meta.global_frame_index,
+      result_callback_, // Pass the existing result callback
+      [this](const Detection& det, const BatchImageMetadata& meta, int idx){ // Lambda for ImageSaveCallback
+          this->saveAnnotatedImage(det, meta, idx); // Bind saveAnnotatedImage
+      },
+      task_id_,
+      object_name_
+  );
 
-  float timestamp_sec =
-      static_cast<float>(image_meta.global_frame_index) / 30.0f;
-
-  if (nms_detections.empty() && image_meta.is_real_image) {
-    InferenceResult res;
-    std::ostringstream oss;
-    oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
-        << std::setprecision(2) << timestamp_sec << "s)"
-        << ": No '" << this->object_name_
-        << "' detected meeting criteria (conf: " << std::fixed
-        << std::setprecision(2) << confidence_threshold << ").";
-    res.info = oss.str();
-    frame_results.push_back(res);
-  }
-
-  for (size_t i = 0; i < nms_detections.size(); ++i) {
-    const auto &det = nms_detections[i];
-    if (!image_meta.is_real_image ||
-        image_meta.original_image_for_callback.empty()) {
-      std::cout << "[警告][ProcessOutput] "
-                   "跳过保存/处理非真实或空图像元数据的检测。Frame: "
-                << image_meta.global_frame_index << std::endl;
-      continue;
-    }
-
-    // 仅打印最终被判定为目标类的检测框
-    std::cout << "[输出] Frame " << image_meta.global_frame_index
-              << ", Class: " << this->object_name_ << " (" << det.class_id
-              << ")"
-              << ", Confidence: " << std::fixed << std::setprecision(4)
-              << det.confidence << std::endl;
-
-    saveAnnotatedImage(det, image_meta, static_cast<int>(i));
-
-    InferenceResult res;
-    std::ostringstream oss;
-    oss << "Frame " << image_meta.global_frame_index << " (Time: " << std::fixed
-        << std::setprecision(2) << timestamp_sec << "s)"
-        << ": Detected '" << this->object_name_
-        << "' (ClassID: " << det.class_id << ")"
-        << " with confidence " << std::fixed << std::setprecision(4)
-        << det.confidence;
-
-    float x1_unpadded = det.x1 - image_meta.pad_w_left;
-    float y1_unpadded = det.y1 - image_meta.pad_h_top;
-    float x2_unpadded = det.x2 - image_meta.pad_w_left;
-    float y2_unpadded = det.y2 - image_meta.pad_h_top;
-
-    if (image_meta.scale_to_model > 1e-6f && image_meta.original_w > 0 &&
-        image_meta.original_h > 0) {
-      int x1_orig =
-          static_cast<int>(std::round(x1_unpadded / image_meta.scale_to_model));
-      int y1_orig =
-          static_cast<int>(std::round(y1_unpadded / image_meta.scale_to_model));
-      int x2_orig =
-          static_cast<int>(std::round(x2_unpadded / image_meta.scale_to_model));
-      int y2_orig =
-          static_cast<int>(std::round(y2_unpadded / image_meta.scale_to_model));
-      x1_orig = std::max(0, std::min(x1_orig, image_meta.original_w - 1));
-      y1_orig = std::max(0, std::min(y1_orig, image_meta.original_h - 1));
-      x2_orig = std::max(0, std::min(x2_orig, image_meta.original_w - 1));
-      y2_orig = std::max(0, std::min(y2_orig, image_meta.original_h - 1));
-      oss << ". Coords (original_image_space): [" << x1_orig << "," << y1_orig
-          << "," << x2_orig << "," << y2_orig << "]";
-    } else {
-      oss << ". Coords (model_input_space): [" << det.x1 << "," << det.y1 << ","
-          << det.x2 << "," << det.y2 << "]";
-    }
-    res.info = oss.str();
-    frame_results.push_back(res);
-  }
+  // At this point, frame_results is populated by object_tracker_->update
+  // and result_callback_ / saveAnnotatedImage have been triggered internally by the tracker.
+  // No direct calls to result_callback_ or saveAnnotatedImage needed here anymore.
 }
 
 float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
@@ -1053,6 +1016,8 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   cv::Mat img_to_save = image_meta.original_image_for_callback.clone();
 
+  // Convert detection bbox from model input space to original image space
+  // using the same logic as Detection::toCvRect2f to ensure consistency
   float x1_unpadded = det.x1 - image_meta.pad_w_left;
   float y1_unpadded = det.y1 - image_meta.pad_h_top;
   float x2_unpadded = det.x2 - image_meta.pad_w_left;
@@ -1098,8 +1063,9 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
   cv::rectangle(img_to_save, cv::Point(x1_orig, y1_orig),
                 cv::Point(x2_orig, y2_orig), cv::Scalar(0, 255, 0), 2);
   std::ostringstream label;
-  label << this->object_name_ << " " << std::fixed << std::setprecision(2)
-        << det.confidence;
+  // Use det.status_info to include tracking ID if available, otherwise default to object_name
+  label << (det.status_info.empty() ? this->object_name_ : det.status_info) << " "
+        << std::fixed << std::setprecision(2) << det.confidence;
   int baseline = 0;
   cv::Size textSize =
       cv::getTextSize(label.str(), cv::FONT_HERSHEY_SIMPLEX, 0.7, 1, &baseline);
@@ -1132,6 +1098,7 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
    * 3. 置信率
    * 4. 在GOP包中的位置
    * 5. 检测对象名称
+   * 6. (Optional) Tracking ID or status
    */
 
   std::ostringstream filename_oss;
@@ -1140,20 +1107,28 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   int confidence_int = static_cast<int>(det.confidence * 10000);
 
-  filename_oss << image_output_path_ << "/" << std::setprecision(0)
-               << image_meta.global_frame_index << "_" << confidence_int
+  // Include tracking ID in filename for clarity if available
+  filename_oss << image_output_path_ << "/"
+               << image_meta.global_frame_index << "_"
+               << (det.status_info.empty() ? "" : (det.status_info + "_")) // Add status info (e.g., NEWID_123, TRACKID_123)
+               << confidence_int
                << ".jpg";
 
   std::cout << filename_oss.str() << std::endl;
   bool success = cv::imwrite(filename_oss.str(), img_to_save);
   if (success) {
-    InferenceResult iResult = InferenceResult();
-    iResult.taskId = task_id_;
-    iResult.confidence = confidence_int;
-    iResult.frameIndex = image_meta.global_frame_index;
-    iResult.seconds = timestamp_sec;
-    iResult.image = filename_oss.str();
-    result_callback_(iResult);
+    // Note: InferenceResult is now mostly generated by ObjectTracker.
+    // This part of saveAnnotatedImage now focuses ONLY on saving and maybe a local debug print.
+    // The actual result_callback_ is called from ObjectTracker.
+    // We can remove the iResult creation here if ObjectTracker handles all reporting.
+    // For now, let's keep it minimal and assume ObjectTracker is the source of truth for reports.
+    // InferenceResult iResult = InferenceResult();
+    // iResult.taskId = task_id_;
+    // iResult.confidence = confidence_int;
+    // iResult.frameIndex = image_meta.global_frame_index;
+    // iResult.seconds = timestamp_sec;
+    // iResult.image = filename_oss.str();
+    // result_callback_(iResult); // This line should be managed by ObjectTracker now.
   } else {
     std::cerr << "[错误] Saving image failed: " << filename_oss.str()
               << std::endl;
