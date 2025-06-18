@@ -37,25 +37,6 @@ struct InferenceResult {
 };
 
 /**
- * @brief 表示模型检测到的一个对象。
- * 坐标是模型输入空间中的坐标。
- */
-struct Detection {
-    float x1, y1, x2, y2;  // Bounding box coordinates (top-left and bottom-right)
-    float confidence;      // Detection confidence
-    int class_id;          // Class ID
-    int batch_idx;         // Index within the batch
-    std::string status_info; // Additional status info, e.g., for tracker to mark ID
-
-    // Forward declaration of BatchImageMetadata, actual definition is below.
-    // This allows toCvRect2f to be a member function here.
-    // If BatchImageMetadata is defined before Detection, this forward declaration is not strictly needed.
-    // However, it's safer if structure order is uncertain or inter-dependent.
-    cv::Rect2f toCvRect2f(const struct BatchImageMetadata& meta) const;
-};
-
-
-/**
  * @brief 包含用于反向变换模型输入坐标到原始图像坐标的元数据。
  */
 struct BatchImageMetadata {
@@ -68,6 +49,24 @@ struct BatchImageMetadata {
     cv::Mat original_image_for_callback; // Copy of original image, for callbacks and annotation
     int global_frame_index;   // Global frame index in the video
 };
+
+/**
+ * @brief 表示模型检测到的一个对象。
+ * 坐标是模型输入空间中的坐标。
+ */
+struct Detection {
+    float x1, y1, x2, y2;  // Bounding box coordinates (top-left and bottom-right)
+    float confidence;      // Detection confidence
+    int class_id;          // Class ID
+    int batch_idx;         // Index within the batch
+    std::string status_info; // Additional status info, e.g., for tracker to mark ID
+
+    // Member function to convert Detection coordinates to cv::Rect2f
+    // and apply inverse letterbox transform to original image space.
+    // Definition is provided below the BatchImageMetadata struct.
+    cv::Rect2f toCvRect2f(const BatchImageMetadata& meta) const;
+};
+
 
 // =========================================================
 // Detection::toCvRect2f 的实现，由于依赖 BatchImageMetadata，
@@ -94,8 +93,13 @@ inline cv::Rect2f Detection::toCvRect2f(const BatchImageMetadata& meta) const {
     x2_orig = std::max(0, std::min(x2_orig, meta.original_w - 1));
     y2_orig = std::max(0, std::min(y2_orig, meta.original_h - 1));
 
-    return cv::Rect2f(static_cast<float>(x1_orig), static_cast<float>(y1_orig),
-                      static_cast<float>(x2_orig - x1_orig), static_cast<float>(y2_orig - y1_orig));
+    // Ensure width and height are positive
+    float width = static_cast<float>(x2_orig - x1_orig);
+    float height = static_cast<float>(y2_orig - y1_orig);
+    width = std::max(0.0f, width);
+    height = std::max(0.0f, height);
+
+    return cv::Rect2f(static_cast<float>(x1_orig), static_cast<float>(y1_orig), width, height);
 }
 
 
@@ -120,4 +124,3 @@ struct TaskInferInfo {
   int completed;
   int remain;
 };
-

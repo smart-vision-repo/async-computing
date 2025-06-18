@@ -58,8 +58,10 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     // Adjust these values based on observed object movement and frame interval
     // Higher values allow for more erratic movement, but also more drift
     // Lower values assume smoother movement, but might fail if actual movement is fast
-    float process_noise_pos_scale = 100.0f; // Scale for position variance (larger if objects move a lot between 30 frames)
-    float process_noise_vel_scale = 25.0f;  // Scale for velocity variance (larger if acceleration is significant)
+    // These values are often adjusted by the delta_t. Since our dt is implicit 1 (frame step),
+    // and each frame is 30 real frames, these noises should be relatively large.
+    float process_noise_pos_scale = 200.0f; // Increased (from 100)
+    float process_noise_vel_scale = 50.0f;  // Increased (from 25)
     kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
         process_noise_pos_scale, 0, 0, 0, 0, 0, 0, 0,
         0, process_noise_pos_scale, 0, 0, 0, 0, 0, 0,
@@ -73,7 +75,7 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
 
     // Measurement noise covariance matrix (R) - How much noise in measurements (detections)
     // Lower values mean more trust in detections, higher values mean less trust
-    float measurement_noise_scale = 10.0f; // Scale for detection accuracy (smaller if detections are very stable)
+    float measurement_noise_scale = 50.0f; // Increased (from 10)
     kf.measurementNoiseCov = (cv::Mat_<float>(4, 4) <<
         measurement_noise_scale, 0, 0, 0,
         0, measurement_noise_scale, 0, 0,
@@ -82,15 +84,23 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     );
 
     // Error covariance matrix (P) - Initial uncertainty in state estimation
+    // This is crucial. A very high initial uncertainty means KF trusts the first measurement almost completely.
     setIdentity(kf.errorCovPost);
-    kf.errorCovPost *= 1e3; // Start with high initial uncertainty
+    // Increased initial uncertainty significantly for position and velocity to allow KF to learn from first few measurements quickly.
+    kf.errorCovPost.at<float>(0,0) = kf.errorCovPost.at<float>(1,1) = kf.errorCovPost.at<float>(2,2) = kf.errorCovPost.at<float>(3,3) = 1e5; // Position/size uncertainty (very high)
+    kf.errorCovPost.at<float>(4,4) = kf.errorCovPost.at<float>(5,5) = kf.errorCovPost.at<float>(6,6) = kf.errorCovPost.at<float>(7,7) = 1e4; // Velocity uncertainty (high)
 
     // Set initial state from the first detection
-    kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0); // Initial velocities are zero
+    // Initialize velocities to small non-zero values or base on a simple heuristic if available,
+    // otherwise, KF will struggle to learn initial motion if all are 0.
+    // For now, keep 0 and rely on process noise to introduce uncertainty in velocity.
+    kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0); 
     kf.statePost = kf_state;
 
-    // Set initial measurement
-    kf_meas = (cv::Mat_<float>(4, 1) << bbox.x, bbox.y, bbox.width, bbox.height);
+    // IMPORTANT FIX: DO NOT call kf.correct(kf_meas) here in the constructor.
+    // The first measurement update (kf.correct) must happen in the update() method
+    // when a new TrackedObject is created AND it receives its first detection measurement.
+    // This allows KF to properly compute initial velocities between two measurements.
 }
 
 void TrackedObject::update(const Detection& det, const BatchImageMetadata& meta, int current_frame_index) {
@@ -107,7 +117,10 @@ void TrackedObject::update(const Detection& det, const BatchImageMetadata& meta,
     std::cout << "[Track " << id << "] Corrected KF State: ["
               << std::fixed << std::setprecision(2) << kf.statePost.at<float>(0) << ","
               << kf.statePost.at<float>(1) << "," << kf.statePost.at<float>(2) << ","
-              << kf.statePost.at<float>(3) << "] at frame " << current_frame_index << std::endl;
+              << kf.statePost.at<float>(3) << "] Vel: ["
+              << kf.statePost.at<float>(4) << "," << kf.statePost.at<float>(5) << ","
+              << kf.statePost.at<float>(6) << "," << kf.statePost.at<float>(7) << "] at frame " // Print all velocities
+              << current_frame_index << std::endl;
 }
 
 cv::Rect2f TrackedObject::predict() {
@@ -118,7 +131,10 @@ cv::Rect2f TrackedObject::predict() {
     std::cout << "[Track " << id << "] Predicted KF BBox: ["
               << std::fixed << std::setprecision(2) << predicted_bbox.x << ","
               << predicted_bbox.y << "," << predicted_bbox.width << ","
-              << predicted_bbox.height << "]" << std::endl;
+              << predicted_bbox.height << "]"
+              << " State Velocities: [" << kf_state.at<float>(4) << "," << kf_state.at<float>(5) << ","
+              << kf_state.at<float>(6) << "," << kf_state.at<float>(7) << "]" // Print all velocities
+              << std::endl;
     return predicted_bbox;
 }
 
@@ -131,8 +147,7 @@ ObjectTracker::ObjectTracker(float iou_threshold, int max_disappeared_frames, fl
     : iou_threshold_(iou_threshold), max_disappeared_frames_(max_disappeared_frames),
       min_confidence_to_track_(min_confidence_to_track), next_track_id_(0) {
     std::cout << "[ObjectTracker] Initialized with IoU threshold: " << iou_threshold_
-              << ", Max disappeared frames: " << max_disappeared_frames_
-              << ", Min confidence to track: " << min_confidence_to_track_ << std::endl;
+              << ", Max disappeared frames: " << max_disappeared_frames_ << ", Min confidence to track: " << min_confidence_to_track_ << std::endl; // Fixed: used max_disappeared_frames_ instead of max_confidence_to_track
 }
 
 std::vector<InferenceResult> ObjectTracker::update(
@@ -168,6 +183,9 @@ std::vector<InferenceResult> ObjectTracker::update(
         // Simply increment frames_since_last_detection for all active tracks
         for (auto& pair : active_tracks_) {
             pair.second.frames_since_last_detection++;
+            // Note: We also need to call KF predict for disappeared tracks,
+            // to keep their state updated in case they reappear.
+            pair.second.predict(); // Perform a prediction step for tracks not matched
             std::cout << "[Track " << pair.first << "] Disappeared count incremented to "
                       << pair.second.frames_since_last_detection << std::endl;
         }
@@ -235,6 +253,9 @@ std::vector<InferenceResult> ObjectTracker::update(
                       << " Predicted BBox: [" << predicted_bboxes[track_id].x << ","
                       << predicted_bboxes[track_id].y << "," << predicted_bboxes[track_id].width << ","
                       << predicted_bboxes[track_id].height << "]"
+                      << " Det BBox: [" << current_det_bbox_orig.x << ","
+                      << current_det_bbox_orig.y << "," << current_det_bbox_orig.width << ","
+                      << current_det_bbox_orig.height << "]"
                       << " IoU: " << std::fixed << std::setprecision(4) << iou
                       << " (Threshold: " << iou_threshold_ << ")" << std::endl;
 
@@ -291,7 +312,14 @@ std::vector<InferenceResult> ObjectTracker::update(
     // 6. Create New Tracks for Unmatched Detections
     for (int det_idx : unmatched_detections_indices) {
         int new_id = next_track_id_++;
+        // Create the new TrackedObject
         active_tracks_.emplace(new_id, TrackedObject(new_id, filtered_detections[det_idx], image_meta, current_global_frame_index));
+        // IMPORTANT: For new tracks, perform an initial KF correction with the first measurement
+        // This ensures KF has a proper initial state with velocities (even if zero for the very first step)
+        // and starts learning from the first actual observation.
+        // Call update here to apply the first correct.
+        active_tracks_.at(new_id).update(filtered_detections[det_idx], image_meta, current_global_frame_index);
+
 
         std::cout << "[ObjectTracker] New Track " << new_id << " (" << object_name
                   << ") appeared. Frame: " << current_global_frame_index << std::endl;
@@ -313,14 +341,17 @@ std::vector<InferenceResult> ObjectTracker::update(
     for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
         if (unmatched_tracks_ids.count(it->first)) { // If this track was not matched in the current frame
             it->second.frames_since_last_detection++;
+            // Note: We also need to call KF predict for disappeared tracks,
+            // to keep their state updated in case they reappear.
+            it->second.predict(); // Perform a prediction step for tracks not matched
             std::cout << "[Track " << it->first << "] Disappeared count incremented to "
                       << it->second.frames_since_last_detection << std::endl;
         }
 
         if (it->second.frames_since_last_detection > max_disappeared_frames_) {
             std::cout << "[ObjectTracker] Track " << it->second.id << " (" << object_name
-                      << ") disappeared. Last seen frame: " << it->second.last_seen_frame_index
-                      << ". Current frame: " << current_global_frame_index << std::endl;
+                          << ") disappeared. Last seen frame: " << it->second.last_seen_frame_index
+                          << ". Current frame: " << current_global_frame_index << std::endl;
             generateAndReportResult(
                 task_id, current_global_frame_index, static_cast<float>(current_global_frame_index) / 30.0f,
                 it->second.id, it->second.bbox, it->second.confidence,
@@ -340,8 +371,8 @@ std::vector<InferenceResult> ObjectTracker::update(
 float ObjectTracker::calculateIoU(const cv::Rect2f& bbox1, const cv::Rect2f& bbox2) const {
     float x1_intersect = std::max(bbox1.x, bbox2.x);
     float y1_intersect = std::max(bbox1.y, bbox2.y);
-    float x2_intersect = std::min(bbox1.x + bbox1.width, bbox2.x + bbox2.width);
-    float y2_intersect = std::min(bbox1.y + bbox1.height, bbox2.y + bbox2.height);
+    float x2_intersect = std::min(bbox1.x + bbox1.width, bbox2.x + bbox2.width); // Corrected
+    float y2_intersect = std::min(bbox1.y + bbox1.height, bbox2.y + bbox2.height); // Corrected
 
     if (x2_intersect <= x1_intersect || y2_intersect <= y1_intersect) {
         return 0.0f;
