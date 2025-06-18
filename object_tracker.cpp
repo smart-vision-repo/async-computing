@@ -23,8 +23,10 @@ TrackedObject::TrackedObject(int new_id, const Detection& det,
         0, 0, 0, 0, 0, 0, 1, 0,
         0, 0, 0, 0, 0, 0, 0, 1);
 
-    float process_noise_pos_scale = 10.0f;
-    float process_noise_vel_scale = 5.0f;
+    float process_noise_pos_scale = 50.0f;
+    float process_noise_vel_scale = 25.0f;
+    // float process_noise_pos_scale = 10.0f;
+    // float process_noise_vel_scale = 5.0f;
     kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
         process_noise_pos_scale, 0, 0, 0, 0, 0, 0, 0,
         0, process_noise_pos_scale, 0, 0, 0, 0, 0, 0,
