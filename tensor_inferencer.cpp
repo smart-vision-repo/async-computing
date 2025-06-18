@@ -66,7 +66,7 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
       num_classes_(0), result_callback_(resultCallback),
       pack_callback_(packCallback), constant_metadata_initialized_(false),
-      object_tracker_(std::make_unique<ObjectTracker>(0.3f, 3, 0.25f, static_cast<float>(interval)))
+      object_tracker_(std::make_unique<ObjectTracker>(0.25f, 3, 0.25f, static_cast<float>(interval)))
       // object_tracker_(std::make_unique<ObjectTracker>(0.45f, 3, 0.25f, static_cast<float>(interval)))
 {
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"

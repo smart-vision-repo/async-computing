@@ -24,7 +24,7 @@ TrackedObject::TrackedObject(int new_id, const Detection& det,
         0, 0, 0, 0, 0, 0, 0, 1);
 
     float process_noise_pos_scale = 1000.0f;
-    float process_noise_vel_scale = 500.0f;
+    float process_noise_vel_scale = 200.0f;
     // float process_noise_pos_scale = 10.0f;
     // float process_noise_vel_scale = 5.0f;
     kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
@@ -177,7 +177,6 @@ std::vector<InferenceResult> ObjectTracker::update(const std::vector<Detection>&
         track_matched[track_id] = false;
 
         if (track.frames_since_last_detection > max_disappeared_frames_) {
-            // Removed: std::cout << "[Tracker] Track ID " << track.id << " disappeared." << std::endl;
             it = active_tracks_.erase(it);
         } else {
             ++it;
