@@ -53,6 +53,7 @@ ObjectTracker::ObjectTracker(float iou_threshold, int max_disappeared_frames,
       max_disappeared_frames_(max_disappeared_frames),
       min_confidence_to_track_(min_confidence_to_track),
       next_track_id_(0),
+      fixed_delta_t_(delta_t),
       fixed_delta_t_(delta_t) {}
 
 void ObjectTracker::update(const std::vector<Detection>& filtered_detections,
