@@ -7,7 +7,8 @@
 // 结构体方法实现
 // =========================================================
 
-// Detection::toCvRect2f 的实现现在放在 models.hpp 中
+// Detection::toCvRect2f 的实现现在放在 models.hpp 中，但其内部需要确保 width 和 height 非负
+// 为了确保所有地方都用到最新修正，这里不再单独提供，依赖 models.hpp 中的 inline 定义。
 
 TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta, int current_frame_index)
     : id(new_id), class_id(det.class_id), confidence(det.confidence), frames_since_last_detection(0),
@@ -94,7 +95,7 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     // Initialize velocities to small non-zero values or base on a simple heuristic if available,
     // otherwise, KF will struggle to learn initial motion if all are 0.
     // For now, keep 0 and rely on process noise to introduce uncertainty in velocity.
-    kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0); 
+    kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0);
     kf.statePost = kf_state;
 
     // IMPORTANT FIX: DO NOT call kf.correct(kf_meas) here in the constructor.
@@ -147,7 +148,7 @@ ObjectTracker::ObjectTracker(float iou_threshold, int max_disappeared_frames, fl
     : iou_threshold_(iou_threshold), max_disappeared_frames_(max_disappeared_frames),
       min_confidence_to_track_(min_confidence_to_track), next_track_id_(0) {
     std::cout << "[ObjectTracker] Initialized with IoU threshold: " << iou_threshold_
-              << ", Max disappeared frames: " << max_disappeared_frames_ << ", Min confidence to track: " << min_confidence_to_track_ << std::endl; // Fixed: used max_disappeared_frames_ instead of max_confidence_to_track
+              << ", Max disappeared frames: " << max_disappeared_frames_ << ", Min confidence to track: " << min_confidence_to_track_ << std::endl;
 }
 
 std::vector<InferenceResult> ObjectTracker::update(
@@ -369,12 +370,20 @@ std::vector<InferenceResult> ObjectTracker::update(
 }
 
 float ObjectTracker::calculateIoU(const cv::Rect2f& bbox1, const cv::Rect2f& bbox2) const {
+    // Debug prints for IoU calculation inputs
+    std::cout << "  IoU Calc Input: BBox1=[" << bbox1.x << "," << bbox1.y << "," << bbox1.width << "," << bbox1.height << "]" << std::endl;
+    std::cout << "  IoU Calc Input: BBox2=[" << bbox2.x << "," << bbox2.y << "," << bbox2.width << "," << bbox2.height << "]" << std::endl;
+
     float x1_intersect = std::max(bbox1.x, bbox2.x);
     float y1_intersect = std::max(bbox1.y, bbox2.y);
     float x2_intersect = std::min(bbox1.x + bbox1.width, bbox2.x + bbox2.width); // Corrected
     float y2_intersect = std::min(bbox1.y + bbox1.height, bbox2.y + bbox2.height); // Corrected
 
+    std::cout << "  IoU Calc Intersect: [" << x1_intersect << "," << y1_intersect << "," << x2_intersect << "," << y2_intersect << "]" << std::endl;
+
+
     if (x2_intersect <= x1_intersect || y2_intersect <= y1_intersect) {
+        std::cout << "  IoU Calc: No intersection (return 0)" << std::endl;
         return 0.0f;
     }
 
@@ -383,7 +392,9 @@ float ObjectTracker::calculateIoU(const cv::Rect2f& bbox1, const cv::Rect2f& bbo
     float area2 = bbox2.width * bbox2.height;
     float union_area = area1 + area2 - intersection_area;
 
-    return union_area > 1e-6f ? intersection_area / union_area : 0.0f;
+    float iou = union_area > 1e-6f ? intersection_area / union_area : 0.0f;
+    std::cout << "  IoU Calc Result: " << iou << std::endl;
+    return iou;
 }
 
 void ObjectTracker::generateAndReportResult(
