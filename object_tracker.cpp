@@ -15,15 +15,19 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     // 初始边界框在原始图像空间
     bbox = det.toCvRect2f(meta);
 
+    std::cout << "[Track " << id << "] Initializing KF with BBox: ["
+              << bbox.x << "," << bbox.y << "," << bbox.width << "," << bbox.height
+              << "] at frame " << current_frame_index << std::endl;
+
     // =========================================
     // Kalman Filter Initialization
-    // State: [x, y, w, h, vx, vy, vw, vh] (8 elements)
-    // Measurement: [x, y, w, h] (4 elements)
+    // State: [x, y, w, h, vx, vy, vw, vh] (8 elements) - position, size, and their velocities
+    // Measurement: [x, y, w, h] (4 elements) - position and size from detection
     // =========================================
     kf.init(8, 4, 0); // 8 state variables, 4 measurement variables, 0 control variables
 
     // Transition matrix (A) - Constant velocity model
-    // x_k = x_{k-1} + dt * vx_{k-1}
+    // x_k = x_{k-1} + dt * vx_{k-1}  (dt is implicitly 1 for each prediction step, representing frame interval)
     // y_k = y_{k-1} + dt * vy_{k-1}
     // w_k = w_{k-1} + dt * vw_{k-1}
     // h_k = h_{k-1} + dt * vh_{k-1}
@@ -32,14 +36,14 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     // vw_k = vw_{k-1}
     // vh_k = vh_{k-1}
     kf.transitionMatrix = (cv::Mat_<float>(8, 8) <<
-        1, 0, 0, 0, 1, 0, 0, 0,  // x
-        0, 1, 0, 0, 0, 1, 0, 0,  // y
-        0, 0, 1, 0, 0, 0, 1, 0,  // w
-        0, 0, 0, 1, 0, 0, 0, 1,  // h
-        0, 0, 0, 0, 1, 0, 0, 0,  // vx
-        0, 0, 0, 0, 0, 1, 0, 0,  // vy
-        0, 0, 0, 0, 0, 0, 1, 0,  // vw
-        0, 0, 0, 0, 0, 0, 0, 1   // vh
+        1, 0, 0, 0, 1, 0, 0, 0,  // x = x + vx
+        0, 1, 0, 0, 0, 1, 0, 0,  // y = y + vy
+        0, 0, 1, 0, 0, 0, 1, 0,  // w = w + vw
+        0, 0, 0, 1, 0, 0, 0, 1,  // h = h + vh
+        0, 0, 0, 0, 1, 0, 0, 0,  // vx = vx
+        0, 0, 0, 0, 0, 1, 0, 0,  // vy = vy
+        0, 0, 0, 0, 0, 0, 1, 0,  // vw = vw
+        0, 0, 0, 0, 0, 0, 0, 1   // vh = vh
     );
 
     // Measurement matrix (H) - Only measure position and size (x, y, w, h)
@@ -51,32 +55,35 @@ TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageM
     );
 
     // Process noise covariance matrix (Q) - How much state changes between steps
-    // Adjust these values based on observed object movement
-    float process_noise_pos = 1.0f; // Position noise
-    float process_noise_vel = 0.1f; // Velocity noise
+    // Adjust these values based on observed object movement and frame interval
+    // Higher values allow for more erratic movement, but also more drift
+    // Lower values assume smoother movement, but might fail if actual movement is fast
+    float process_noise_pos_scale = 100.0f; // Scale for position variance (larger if objects move a lot between 30 frames)
+    float process_noise_vel_scale = 25.0f;  // Scale for velocity variance (larger if acceleration is significant)
     kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
-        process_noise_pos, 0, 0, 0, 0, 0, 0, 0,
-        0, process_noise_pos, 0, 0, 0, 0, 0, 0,
-        0, 0, process_noise_pos, 0, 0, 0, 0, 0,
-        0, 0, 0, process_noise_pos, 0, 0, 0, 0,
-        0, 0, 0, 0, process_noise_vel, 0, 0, 0,
-        0, 0, 0, 0, 0, process_noise_vel, 0, 0,
-        0, 0, 0, 0, 0, 0, process_noise_vel, 0,
-        0, 0, 0, 0, 0, 0, 0, process_noise_vel
+        process_noise_pos_scale, 0, 0, 0, 0, 0, 0, 0,
+        0, process_noise_pos_scale, 0, 0, 0, 0, 0, 0,
+        0, 0, process_noise_pos_scale, 0, 0, 0, 0, 0,
+        0, 0, 0, process_noise_pos_scale, 0, 0, 0, 0,
+        0, 0, 0, 0, process_noise_vel_scale, 0, 0, 0,
+        0, 0, 0, 0, 0, process_noise_vel_scale, 0, 0,
+        0, 0, 0, 0, 0, 0, process_noise_vel_scale, 0,
+        0, 0, 0, 0, 0, 0, 0, process_noise_vel_scale
     );
 
     // Measurement noise covariance matrix (R) - How much noise in measurements (detections)
-    // Adjust based on detection accuracy
-    float measurement_noise = 10.0f; // BBox measurement noise
+    // Lower values mean more trust in detections, higher values mean less trust
+    float measurement_noise_scale = 10.0f; // Scale for detection accuracy (smaller if detections are very stable)
     kf.measurementNoiseCov = (cv::Mat_<float>(4, 4) <<
-        measurement_noise, 0, 0, 0,
-        0, measurement_noise, 0, 0,
-        0, 0, measurement_noise, 0,
-        0, 0, 0, measurement_noise
+        measurement_noise_scale, 0, 0, 0,
+        0, measurement_noise_scale, 0, 0,
+        0, 0, measurement_noise_scale, 0,
+        0, 0, 0, measurement_noise_scale
     );
 
     // Error covariance matrix (P) - Initial uncertainty in state estimation
-    setIdentity(kf.errorCovPost); // Start with high uncertainty
+    setIdentity(kf.errorCovPost);
+    kf.errorCovPost *= 1e3; // Start with high initial uncertainty
 
     // Set initial state from the first detection
     kf_state = (cv::Mat_<float>(8, 1) << bbox.x, bbox.y, bbox.width, bbox.height, 0, 0, 0, 0); // Initial velocities are zero
@@ -97,14 +104,22 @@ void TrackedObject::update(const Detection& det, const BatchImageMetadata& meta,
     // Kalman Filter Update (Correction Step)
     kf_meas = (cv::Mat_<float>(4, 1) << bbox.x, bbox.y, bbox.width, bbox.height);
     kf.correct(kf_meas); // Correct state based on new measurement
+    std::cout << "[Track " << id << "] Corrected KF State: ["
+              << std::fixed << std::setprecision(2) << kf.statePost.at<float>(0) << ","
+              << kf.statePost.at<float>(1) << "," << kf.statePost.at<float>(2) << ","
+              << kf.statePost.at<float>(3) << "] at frame " << current_frame_index << std::endl;
 }
 
 cv::Rect2f TrackedObject::predict() {
     // Kalman Filter Predict Step
     kf_state = kf.predict(); // Predict next state
-    // Return predicted bounding box
-    return cv::Rect2f(kf_state.at<float>(0), kf_state.at<float>(1),
-                      kf_state.at<float>(2), kf_state.at<float>(3));
+    cv::Rect2f predicted_bbox(kf_state.at<float>(0), kf_state.at<float>(1),
+                              kf_state.at<float>(2), kf_state.at<float>(3));
+    std::cout << "[Track " << id << "] Predicted KF BBox: ["
+              << std::fixed << std::setprecision(2) << predicted_bbox.x << ","
+              << predicted_bbox.y << "," << predicted_bbox.width << ","
+              << predicted_bbox.height << "]" << std::endl;
+    return predicted_bbox;
 }
 
 
@@ -131,6 +146,11 @@ std::vector<InferenceResult> ObjectTracker::update(
 ) {
     std::vector<InferenceResult> results_to_report;
 
+    std::cout << "\n[ObjectTracker] Processing Frame: " << current_global_frame_index
+              << ", Num Detections: " << current_detections_from_inferencer.size()
+              << ", Num Active Tracks (Before): " << active_tracks_.size() << std::endl;
+
+
     // 1. 过滤掉置信度低于跟踪阈值的检测结果
     std::vector<Detection> filtered_detections;
     for(const auto& det : current_detections_from_inferencer){
@@ -138,12 +158,18 @@ std::vector<InferenceResult> ObjectTracker::update(
             filtered_detections.push_back(det);
         }
     }
+    std::cout << "[ObjectTracker] Num Filtered Detections (Conf >= " << min_confidence_to_track_
+              << "): " << filtered_detections.size() << std::endl;
+
 
     // 2. 处理填充帧或无检测的情况
     if (!image_meta.is_real_image) { // If it's a padding frame, do not update tracker based on detections
+        std::cout << "[ObjectTracker] This is a padding frame. Only incrementing disappeared counts." << std::endl;
         // Simply increment frames_since_last_detection for all active tracks
         for (auto& pair : active_tracks_) {
             pair.second.frames_since_last_detection++;
+            std::cout << "[Track " << pair.first << "] Disappeared count incremented to "
+                      << pair.second.frames_since_last_detection << std::endl;
         }
         // Remove tracks that have disappeared for too long
         for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
@@ -162,6 +188,7 @@ std::vector<InferenceResult> ObjectTracker::update(
                 ++it;
             }
         }
+        std::cout << "[ObjectTracker] Num Active Tracks (After padding frame): " << active_tracks_.size() << std::endl;
         return results_to_report;
     }
 
@@ -183,21 +210,34 @@ std::vector<InferenceResult> ObjectTracker::update(
         unmatched_tracks_ids.insert(pair.first);
     }
 
+    std::cout << "[ObjectTracker] Attempting to match " << filtered_detections.size() << " detections with "
+              << active_tracks_.size() << " active tracks." << std::endl;
+
     // Greedy matching strategy: For each unmatched detection, find the best unmatched track
     // (based on IoU with predicted bbox) that exceeds the iou_threshold.
     // Loop through detections
-    for (int det_idx : unmatched_detections_indices) { // Iterate through detections
+    for (int det_idx = 0; det_idx < filtered_detections.size(); ++det_idx) {
         float max_iou = 0.0f;
         int best_track_id = -1;
         
         // Loop through unmatched tracks to find the best match for current detection
         // Create a copy to iterate because unmatched_tracks_ids might be modified inside the loop
         std::vector<int> current_unmatched_tracks_copy(unmatched_tracks_ids.begin(), unmatched_tracks_ids.end());
+        
+        cv::Rect2f current_det_bbox_orig = filtered_detections[det_idx].toCvRect2f(image_meta);
+        
         for (int track_id : current_unmatched_tracks_copy) {
             // Calculate IoU between the current detection (converted to original image space)
             // and the predicted bounding box of the track.
-            float iou = calculateIoU(filtered_detections[det_idx].toCvRect2f(image_meta), predicted_bboxes[track_id]);
+            float iou = calculateIoU(current_det_bbox_orig, predicted_bboxes[track_id]);
             
+            std::cout << "  [Match Attempt] Det " << det_idx << " vs Track " << track_id
+                      << " Predicted BBox: [" << predicted_bboxes[track_id].x << ","
+                      << predicted_bboxes[track_id].y << "," << predicted_bboxes[track_id].width << ","
+                      << predicted_bboxes[track_id].height << "]"
+                      << " IoU: " << std::fixed << std::setprecision(4) << iou
+                      << " (Threshold: " << iou_threshold_ << ")" << std::endl;
+
             if (iou > max_iou && iou >= iou_threshold_) {
                 max_iou = iou;
                 best_track_id = track_id;
@@ -208,8 +248,19 @@ std::vector<InferenceResult> ObjectTracker::update(
             matches.push_back({det_idx, best_track_id});
             unmatched_detections_indices.erase(det_idx); // Mark detection as matched
             unmatched_tracks_ids.erase(best_track_id);   // Mark track as matched
+            std::cout << "  [Match Success] Det " << det_idx << " matched to Track " << best_track_id
+                      << " with IoU: " << std::fixed << std::setprecision(4) << max_iou << std::endl;
+        } else {
+            std::cout << "  [Match Fail] Det " << det_idx << " (BBox: ["
+                      << current_det_bbox_orig.x << "," << current_det_bbox_orig.y << ","
+                      << current_det_bbox_orig.width << "," << current_det_bbox_orig.height << "]) "
+                      << " could not find a match." << std::endl;
         }
     }
+
+    std::cout << "[ObjectTracker] Matched pairs: " << matches.size() << std::endl;
+    std::cout << "[ObjectTracker] Unmatched Detections: " << unmatched_detections_indices.size() << std::endl;
+    std::cout << "[ObjectTracker] Unmatched Tracks: " << unmatched_tracks_ids.size() << std::endl;
 
 
     // 5. Update Matched Tracks
@@ -262,6 +313,8 @@ std::vector<InferenceResult> ObjectTracker::update(
     for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
         if (unmatched_tracks_ids.count(it->first)) { // If this track was not matched in the current frame
             it->second.frames_since_last_detection++;
+            std::cout << "[Track " << it->first << "] Disappeared count incremented to "
+                      << it->second.frames_since_last_detection << std::endl;
         }
 
         if (it->second.frames_since_last_detection > max_disappeared_frames_) {
@@ -279,6 +332,7 @@ std::vector<InferenceResult> ObjectTracker::update(
             ++it;
         }
     }
+    std::cout << "[ObjectTracker] Num Active Tracks (After frame): " << active_tracks_.size() << std::endl;
 
     return results_to_report;
 }
@@ -328,3 +382,4 @@ void ObjectTracker::generateAndReportResult(
     results_to_report.push_back(res); // Add to the list to be returned
     result_callback(res); // Also trigger the immediate callback
 }
+
