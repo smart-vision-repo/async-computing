@@ -1,4 +1,4 @@
-// models.hpp (Updated)
+// models.hpp
 #pragma once
 #include <opencv2/opencv.hpp>
 #include <string>
@@ -9,19 +9,12 @@
 // 共享结构体定义
 // =========================================================
 
-/**
- * @brief 推理输入数据结构。
- */
 struct InferenceInput {
   std::vector<cv::Mat> decoded_frames;
   int gopIdx;
   int latest_frame_index;
 };
 
-/**
- * @brief 推理结果结构。
- * 用于报告给上层应用。
- */
 struct InferenceResult {
   std::string info;
   int type = 10; // 0: detection, 1: classification, etc.
@@ -36,9 +29,6 @@ struct InferenceResult {
   cv::Rect2f bbox_orig_img_space; // Bounding box in original image space
 };
 
-/**
- * @brief 包含用于反向变换模型输入坐标到原始图像坐标的元数据。
- */
 struct BatchImageMetadata {
     int original_w;           // Original image width
     int original_h;           // Original image height
@@ -50,10 +40,6 @@ struct BatchImageMetadata {
     int global_frame_index;   // Global frame index in the video
 };
 
-/**
- * @brief 表示模型检测到的一个对象。
- * 坐标是模型输入空间中的坐标。
- */
 struct Detection {
     float x1, y1, x2, y2;  // Bounding box coordinates (top-left and bottom-right)
     float confidence;      // Detection confidence
@@ -64,51 +50,36 @@ struct Detection {
     // Convenience members for Kalman Filter
     float x, y, width, height; // Center_x, center_y, width, height
 
-    // Member function to convert Detection coordinates to cv::Rect2f
-    // and apply inverse letterbox transform to original image space.
-    // Definition is provided below the BatchImageMetadata struct.
     cv::Rect2f toCvRect2f(const BatchImageMetadata& meta) const;
 };
 
-
-// =========================================================
-// Detection::toCvRect2f 的实现，由于依赖 BatchImageMetadata，
-// 且希望 Detection 在 BatchImageMetadata 之前定义，
-// 因此函数体放在这里（定义之后，或在一个 .cpp 文件中）
-// =========================================================
 inline cv::Rect2f Detection::toCvRect2f(const BatchImageMetadata& meta) const {
     // Convert coordinates from model input space back to original image space
-    // Step 1: Remove letterbox padding
     float x1_unpadded = x1 - meta.pad_w_left;
     float y1_unpadded = y1 - meta.pad_h_top;
     float x2_unpadded = x2 - meta.pad_w_left;
     float y2_unpadded = y2 - meta.pad_h_top;
 
-    // Step 2: Inverse scale back to original dimensions
-    int x1_orig = static_cast<int>(std::round(x1_unpadded / meta.scale_to_model));
-    int y1_orig = static_cast<int>(std::round(y1_unpadded / meta.scale_to_model));
-    int x2_orig = static_cast<int>(std::round(x2_unpadded / meta.scale_to_model));
-    int y2_orig = static_cast<int>(std::round(y2_unpadded / meta.scale_to_model));
+    float x1_orig = std::round(x1_unpadded / meta.scale_to_model);
+    float y1_orig = std::round(y1_unpadded / meta.scale_to_model);
+    float x2_orig = std::round(x2_unpadded / meta.scale_to_model);
+    float y2_orig = std::round(y2_unpadded / meta.scale_to_model);
 
-    // Step 3: Clamp to original image bounds
-    x1_orig = std::max(0, std::min(x1_orig, meta.original_w - 1));
-    y1_orig = std::max(0, std::min(y1_orig, meta.original_h - 1));
-    x2_orig = std::max(0, std::min(x2_orig, meta.original_w - 1));
-    y2_orig = std::max(0, std::min(y2_orig, meta.original_h - 1));
+    // Clamp to original image bounds
+    x1_orig = std::max(0.0f, std::min(x1_orig, static_cast<float>(meta.original_w - 1)));
+    y1_orig = std::max(0.0f, std::min(y1_orig, static_cast<float>(meta.original_h - 1)));
+    x2_orig = std::max(0.0f, std::min(x2_orig, static_cast<float>(meta.original_w - 1)));
+    y2_orig = std::max(0.0f, std::min(y2_orig, static_cast<float>(meta.original_h - 1)));
 
-    // Ensure width and height are positive
-    float width = static_cast<float>(x2_orig - x1_orig);
-    float height = static_cast<float>(y2_orig - y1_orig);
+    // Ensure positive width and height
+    float width = x2_orig - x1_orig;
+    float height = y2_orig - y1_orig;
     width = std::max(0.0f, width);
     height = std::max(0.0f, height);
 
-    return cv::Rect2f(static_cast<float>(x1_orig), static_cast<float>(y1_orig), width, height);
+    return cv::Rect2f(x1_orig, y1_orig, width, height);
 }
 
-
-/**
- * @brief 解码过程信息
- */
 struct TaskDecodeInfo {
   int taskId;
   int type = 20;
@@ -118,9 +89,6 @@ struct TaskDecodeInfo {
   int total;
 };
 
-/**
- * @brief 推理过程信息
- */
 struct TaskInferInfo {
   int taskId;
   int type = 30;

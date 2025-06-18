@@ -1,4 +1,3 @@
-// object_tracker.cpp (Updated)
 #include "object_tracker.hpp"
 #include <opencv2/core.hpp>
 #include <opencv2/video/tracking.hpp>
@@ -24,8 +23,7 @@ TrackedObject::TrackedObject(int new_id, const Detection& det,
         0, 0, 0, 0, 0, 0, 1, 0,
         0, 0, 0, 0, 0, 0, 0, 1);
 
-    // Adjust process noise scales
-    float process_noise_pos_scale = 10.0f; // Increase for more aggressive tracking
+    float process_noise_pos_scale = 10.0f;
     float process_noise_vel_scale = 5.0f;
     kf.processNoiseCov = (cv::Mat_<float>(8, 8) <<
         process_noise_pos_scale, 0, 0, 0, 0, 0, 0, 0,
@@ -41,27 +39,25 @@ TrackedObject::TrackedObject(int new_id, const Detection& det,
     for (int i = 0; i < 4; ++i)
         kf.measurementMatrix.at<float>(i, i) = 1.0f;
 
-    // Measurement noise covariance
-    float measurement_noise_scale = 1.0f; // Adjust as needed
+    float measurement_noise_scale = 1.0f;
     kf.measurementNoiseCov = (cv::Mat_<float>(4, 4) <<
         measurement_noise_scale, 0, 0, 0,
         0, measurement_noise_scale, 0, 0,
         0, 0, measurement_noise_scale, 0,
         0, 0, 0, measurement_noise_scale);
 
-    // Initial state (x, y, width, height, vx, vy, vw, vh)
     kf.statePre.at<float>(0) = det.x;
     kf.statePre.at<float>(1) = det.y;
     kf.statePre.at<float>(2) = det.width;
     kf.statePre.at<float>(3) = det.height;
-    kf.statePre.at<float>(4) = 0; // Initial velocities
+    kf.statePre.at<float>(4) = 0;
     kf.statePre.at<float>(5) = 0;
     kf.statePre.at<float>(6) = 0;
     kf.statePre.at<float>(7) = 0;
 
-    kf.errorCovPost = cv::Mat::eye(8, 8, CV_32F) * 1.0f; // Post-error covariance
-    state = kf.statePre.clone(); // Initialize current state with initial prediction
-    predicted_bbox = cv::Rect2f(det.x, det.y, det.width, det.height); // Initial prediction is the detection itself
+    kf.errorCovPost = cv::Mat::eye(8, 8, CV_32F) * 1.0f;
+    state = kf.statePre.clone();
+    predicted_bbox = cv::Rect2f(det.x, det.y, det.width, det.height);
 }
 
 void TrackedObject::predict() {
@@ -74,7 +70,7 @@ void TrackedObject::predict() {
 void TrackedObject::update(const Detection& detection) {
     cv::Mat measurement = (cv::Mat_<float>(4, 1) << detection.x, detection.y, detection.width, detection.height);
     state = kf.correct(measurement);
-    confidence = detection.confidence; // Update confidence with the latest detection
+    confidence = detection.confidence;
     frames_since_last_detection = 0;
     total_frames_tracked++;
 }
@@ -89,7 +85,6 @@ ObjectTracker::ObjectTracker(float iou_threshold, int max_disappeared_frames,
       fixed_delta_t_(delta_t) {}
 
 float ObjectTracker::calculateIoU(const Detection &a, const cv::Rect2f &b_bbox_predicted) {
-    // Convert detection 'a' to cv::Rect2f
     cv::Rect2f a_bbox(a.x, a.y, a.width, a.height);
     return calculateIoU(a_bbox, b_bbox_predicted);
 }
@@ -124,15 +119,13 @@ void ObjectTracker::createAndReportInferenceResult(
     InferenceResult infer_result;
     infer_result.taskId = task_id;
     infer_result.frameIndex = current_global_frame_index;
-    infer_result.seconds = static_cast<float>(current_global_frame_index) / 30.0f; // Assuming 30 FPS
+    infer_result.seconds = static_cast<float>(current_global_frame_index) / 30.0f;
     infer_result.confidence = track.confidence;
     infer_result.tracked_id = track.id;
 
-    // Use the predicted bbox for reporting if it's a prediction, otherwise the updated state
     cv::Rect2f current_bbox_model_space(track.state.at<float>(0), track.state.at<float>(1),
                                         track.state.at<float>(2), track.state.at<float>(3));
 
-    // Create a dummy detection to use its toCvRect2f method
     Detection det_for_conversion;
     det_for_conversion.x1 = current_bbox_model_space.x;
     det_for_conversion.y1 = current_bbox_model_space.y;
@@ -147,8 +140,6 @@ void ObjectTracker::createAndReportInferenceResult(
              << status_info;
     infer_result.info = info_oss.str();
 
-    // Prepare detection for image saving (need to reconstruct it from track state)
-    // This is important because saveAnnotatedImage expects a Detection struct.
     Detection det_for_save;
     det_for_save.x1 = track.state.at<float>(0);
     det_for_save.y1 = track.state.at<float>(1);
@@ -156,11 +147,10 @@ void ObjectTracker::createAndReportInferenceResult(
     det_for_save.y2 = track.state.at<float>(1) + track.state.at<float>(3);
     det_for_save.confidence = track.confidence;
     det_for_save.class_id = track.class_id;
-    det_for_save.batch_idx = -1; // Not applicable for a tracked object
+    det_for_save.batch_idx = -1;
     det_for_save.status_info = status_info + "_ID_" + std::to_string(track.id);
 
-    // Call image saving callback
-    image_save_callback(det_for_save, image_meta, track.id); // Using track.id as a pseudo detection index
+    image_save_callback(det_for_save, image_meta, track.id);
 
     result_callback(infer_result);
 }
@@ -175,31 +165,26 @@ std::vector<InferenceResult> ObjectTracker::update(const std::vector<Detection>&
                                                     const std::string& object_name) {
     std::vector<InferenceResult> frame_results;
     std::vector<bool> detection_matched(detections.size(), false);
-    std::map<int, bool> track_matched; // Map to keep track of which active_tracks_ have been matched
+    std::map<int, bool> track_matched;
 
-    // 1. Predict new locations for existing tracks
     for (auto it = active_tracks_.begin(); it != active_tracks_.end(); ) {
         int track_id = it->first;
         TrackedObject& track = it->second;
 
-        track.predict(); // Predict next state
-        track_matched[track_id] = false; // Mark as unmatched initially
+        track.predict();
+        track_matched[track_id] = false;
 
-        // Remove old, disappeared tracks
         if (track.frames_since_last_detection > max_disappeared_frames_) {
-            std::cout << "[Tracker] Track ID " << track.id << " disappeared." << std::endl;
-            // Optionally, create a final InferenceResult for disappeared track
-            // createAndReportInferenceResult(track, image_meta, current_global_frame_index, result_callback, image_save_callback, task_id, object_name, "DISAPPEARED");
+            // Removed: std::cout << "[Tracker] Track ID " << track.id << " disappeared." << std::endl;
             it = active_tracks_.erase(it);
         } else {
             ++it;
         }
     }
 
-    // 2. Associate detections with existing tracks
     for (size_t i = 0; i < detections.size(); ++i) {
         if (detections[i].confidence < min_confidence_to_track_) {
-            continue; // Skip detections below tracking confidence threshold
+            continue;
         }
 
         const Detection& current_det = detections[i];
@@ -208,7 +193,6 @@ std::vector<InferenceResult> ObjectTracker::update(const std::vector<Detection>&
 
         for (auto& pair : active_tracks_) {
             TrackedObject& track = pair.second;
-            // Only consider tracks that are of the same class and not yet matched
             if (track.class_id == current_det.class_id && !track_matched[track.id]) {
                 float iou = calculateIoU(current_det, track.predicted_bbox);
                 if (iou > max_iou && iou > iou_threshold_) {
@@ -219,32 +203,24 @@ std::vector<InferenceResult> ObjectTracker::update(const std::vector<Detection>&
         }
 
         if (best_track_id != -1) {
-            // Match found
             TrackedObject& matched_track = active_tracks_.at(best_track_id);
-            matched_track.update(current_det); // Update Kalman Filter with new detection
+            matched_track.update(current_det);
             matched_track.last_seen_frame_index = current_global_frame_index;
             detection_matched[i] = true;
             track_matched[best_track_id] = true;
 
-            // Report updated track
             createAndReportInferenceResult(matched_track, image_meta, current_global_frame_index, result_callback, image_save_callback, task_id, object_name, "TRACKED");
         }
     }
 
-    // 3. Handle unmatched detections (new tracks)
     for (size_t i = 0; i < detections.size(); ++i) {
         if (!detection_matched[i] && detections[i].confidence >= min_confidence_to_track_) {
             int new_id = next_track_id_++;
             active_tracks_.emplace(new_id,
                 TrackedObject(new_id, detections[i], image_meta,
                               current_global_frame_index, fixed_delta_t_));
-            std::cout << "[Tracker] New track created with ID: " << new_id << std::endl;
-            // Report new track
             createAndReportInferenceResult(active_tracks_.at(new_id), image_meta, current_global_frame_index, result_callback, image_save_callback, task_id, object_name, "NEW");
         }
     }
-
-    // No need to return frame_results here, as callbacks handle reporting.
-    // However, the signature expects a return, so return an empty vector.
     return frame_results;
 }
