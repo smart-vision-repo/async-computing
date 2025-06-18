@@ -35,7 +35,7 @@ TrackedObject::TrackedObject(int new_id, const Detection& det,
     for (int i = 0; i < 4; ++i)
         kf.measurementMatrix.at<float>(i, i) = 1.0f;
 
-    cv::Rect2f bbox = det.bbox;
+    cv::Rect2f bbox(det.x, det.y, det.width, det.height);
     kf.statePre.at<float>(0) = bbox.x;
     kf.statePre.at<float>(1) = bbox.y;
     kf.statePre.at<float>(2) = bbox.width;
@@ -53,7 +53,6 @@ ObjectTracker::ObjectTracker(float iou_threshold, int max_disappeared_frames,
       max_disappeared_frames_(max_disappeared_frames),
       min_confidence_to_track_(min_confidence_to_track),
       next_track_id_(0),
-      fixed_delta_t_(delta_t),
       fixed_delta_t_(delta_t) {}
 
 void ObjectTracker::update(const std::vector<Detection>& filtered_detections,
