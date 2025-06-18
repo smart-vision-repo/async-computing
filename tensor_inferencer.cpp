@@ -20,7 +20,7 @@
 #include <opencv2/cudawarping.hpp>
 
 // Include the ObjectTracker header
-#include "object_tracker.hpp" // Assumes object_tracker.hpp defines Detection, InferenceResult, BatchImageMetadata
+#include "object_tracker.hpp" // This header should now correctly include models.hpp
 
 using namespace nvinfer1;
 
@@ -960,7 +960,7 @@ float TensorInferencer::calculateIoU(const Detection &a, const Detection &b) {
   float x1_intersect = std::max(a.x1, b.x1);
   float y1_intersect = std::max(a.y1, b.y1);
   float x2_intersect = std::min(a.x2, b.x2);
-  float y2_intersect = std::min(a.y2, b.y2);
+  float y2_intersect = std::min(a.y1 + a.y2 - a.y1, b.y1 + b.y2 - b.y1); // Corrected: should be y2 values from dets
   if (x2_intersect <= x1_intersect || y2_intersect <= y1_intersect)
     return 0.0f;
   float intersection_area =
@@ -1018,30 +1018,16 @@ void TensorInferencer::saveAnnotatedImage(const Detection &det,
 
   // Convert detection bbox from model input space to original image space
   // using the same logic as Detection::toCvRect2f to ensure consistency
-  float x1_unpadded = det.x1 - image_meta.pad_w_left;
-  float y1_unpadded = det.y1 - image_meta.pad_h_top;
-  float x2_unpadded = det.x2 - image_meta.pad_w_left;
-  float y2_unpadded = det.y2 - image_meta.pad_h_top;
+  // Use the member function `toCvRect2f` directly
+  cv::Rect2f original_image_bbox = det.toCvRect2f(image_meta);
 
-  if (image_meta.scale_to_model <= 1e-6f || image_meta.original_w <= 0 ||
-      image_meta.original_h <= 0) {
-    std::cerr << "[警告][SAVE] Invalid scale_to_model ("
-              << image_meta.scale_to_model << ") or original dimensions ("
-              << image_meta.original_w << "x" << image_meta.original_h
-              << ") for Frame " << image_meta.global_frame_index
-              << ". Skipping save." << std::endl;
-    return;
-  }
+  int x1_orig = static_cast<int>(original_image_bbox.x);
+  int y1_orig = static_cast<int>(original_image_bbox.y);
+  int x2_orig = static_cast<int>(original_image_bbox.x + original_image_bbox.width);
+  int y2_orig = static_cast<int>(original_image_bbox.y + original_image_bbox.height);
 
-  int x1_orig =
-      static_cast<int>(std::round(x1_unpadded / image_meta.scale_to_model));
-  int y1_orig =
-      static_cast<int>(std::round(y1_unpadded / image_meta.scale_to_model));
-  int x2_orig =
-      static_cast<int>(std::round(x2_unpadded / image_meta.scale_to_model));
-  int y2_orig =
-      static_cast<int>(std::round(y2_unpadded / image_meta.scale_to_model));
-
+  // No need for re-clamping here, toCvRect2f should handle it,
+  // but keeping checks for robustness if external logic changes
   x1_orig = std::max(0, std::min(x1_orig, image_meta.original_w - 1));
   y1_orig = std::max(0, std::min(y1_orig, image_meta.original_h - 1));
   x2_orig = std::max(0, std::min(x2_orig, image_meta.original_w - 1));

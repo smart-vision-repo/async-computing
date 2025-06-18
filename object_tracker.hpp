@@ -12,63 +12,18 @@
 // OpenCV 头部文件，用于处理图像和几何数据
 #include <opencv2/opencv.hpp>
 
-// =========================================================
-// 以下结构体通常在项目中的某个公共头文件定义，这里为了代码自包含性而包含
-// 在实际项目中集成时，请确保这些定义与你的项目保持一致或从公共头文件引入
-// =========================================================
-
-/**
- * @brief 表示模型检测到的一个对象。
- * 坐标是模型输入空间中的坐标。
- */
-struct Detection {
-    float x1, y1, x2, y2;  // 边界框坐标 (左上角和右下角)
-    float confidence;      // 检测置信度
-    int class_id;          // 类别 ID
-    int batch_idx;         // 批处理中的索引
-    std::string status_info; // 附加状态信息，例如用于跟踪器标记ID
-
-    // 将模型输入空间的 Detection 转换为 OpenCV 的 Rect2f 形式
-    // 并应用反 letterbox 变换到原始图像空间
-    cv::Rect2f toCvRect2f(const struct BatchImageMetadata& meta) const;
-};
-
-/**
- * @brief 包含用于反向变换模型输入坐标到原始图像坐标的元数据。
- */
-struct BatchImageMetadata {
-    int original_w;           // 原始图像宽度
-    int original_h;           // 原始图像高度
-    float scale_to_model;     // 图像缩放因子
-    int pad_w_left;           // 左侧填充宽度
-    int pad_h_top;            // 顶部填充高度
-    bool is_real_image;       // 是否是真实图像（非填充）
-    cv::Mat original_image_for_callback; // 原始图像副本，用于回调和标注
-    int global_frame_index;   // 视频中的全局帧索引
-};
-
-/**
- * @brief 推理结果的结构体，用于报告给上层应用。
- */
-struct InferenceResult {
-    int taskId;           // 任务 ID
-    int confidence;       // 置信度 (例如，转换为整数百分比)
-    int frameIndex;       // 帧索引
-    float seconds;        // 时间戳（秒）
-    std::string info;     // 详细信息字符串
-    std::string image;    // 保存的标注图像路径
-    // 可以添加更多字段，如对象ID、边界框坐标等
-    int tracked_id = -1; // 跟踪ID
-    cv::Rect2f bbox_orig_img_space; // 原始图像空间的边界框
-};
+// 包含 models.hpp，其中现在包含了 Detection, InferenceResult, BatchImageMetadata 等结构体
+#include "models.hpp"
 
 // =========================================================
 // 回调函数类型定义
 // =========================================================
 
 // 用于保存标注图像的回调函数，通常由 TensorInferencer 提供
+// Detection, BatchImageMetadata 是在 models.hpp 中定义的
 using ImageSaveCallback = std::function<void(const Detection&, const BatchImageMetadata&, int)>;
 // 用于报告推理结果（包括跟踪结果）的回调函数，通常由 VideoProcessor 提供
+// InferenceResult 是在 models.hpp 中定义的
 using InferResultCallback = std::function<void(const InferenceResult&)>;
 
 

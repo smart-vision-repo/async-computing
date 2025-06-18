@@ -12,10 +12,10 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/cudaarithm.hpp> // For GPU operations with OpenCV
 
-// Assume these are defined in a common header like 'models.hpp' or 'object_tracker.hpp'
-// If not, you might need to include 'models.hpp' explicitly or define them here.
-// For this example, let's assume object_tracker.hpp brings them in.
-#include "object_tracker.hpp" // This header should define Detection, InferenceResult, BatchImageMetadata
+// 包含 models.hpp，其中现在包含了 Detection, InferenceResult, BatchImageMetadata 等结构体
+#include "models.hpp"
+// 包含 object_tracker.hpp，用于引入 ObjectTracker 类定义
+#include "object_tracker.hpp"
 
 // Forward declaration of the logger
 class TrtLogger;
@@ -28,16 +28,18 @@ class IExecutionContext;
 
 /**
  * @brief 推理输入数据结构。
+ * (此结构体现在已移至 models.hpp，此处注释仅为兼容性考虑)
  */
-struct InferenceInput {
-    std::vector<cv::Mat> decoded_frames; // 批量解码的帧
-    int latest_frame_index;              // 当前批次中最新帧的全局索引
-};
+// struct InferenceInput {
+//     std::vector<cv::Mat> decoded_frames; // 批量解码的帧
+//     int latest_frame_index;              // 当前批次中最新帧的全局索引
+// };
 
 /**
  * @brief 回调函数定义。
  */
 // 用于报告推理结果的回调函数（现在由ObjectTracker触发）
+// InferenceResult 现在定义在 models.hpp 中
 using InferResultCallback = std::function<void(const InferenceResult&)>;
 // 用于报告推理批次完成信息的回调函数
 using InferPackCallback = std::function<void(const int&)>;
@@ -110,6 +112,7 @@ private:
 
     // 批处理相关成员
     std::vector<cv::Mat> current_batch_raw_frames_;
+    // BatchImageMetadata 现在定义在 models.hpp 中
     std::vector<BatchImageMetadata> current_batch_metadata_;
     std::mutex batch_mutex_; // 保护批处理队列的互斥锁
 
@@ -173,6 +176,7 @@ private:
      * @param b 第二个检测框。
      * @return IoU 值。
      */
+    // Detection 结构体现在定义在 models.hpp 中
     float calculateIoU(const Detection &a, const Detection &b);
 
     /**
@@ -181,6 +185,7 @@ private:
      * @param iou_threshold IoU 阈值。
      * @return 经过 NMS 后的检测列表。
      */
+    // Detection 结构体现在定义在 models.hpp 中
     std::vector<Detection> applyNMS(const std::vector<Detection> &detections,
                                     float iou_threshold);
 
@@ -190,6 +195,7 @@ private:
      * @param image_meta 图像元数据。
      * @param detection_idx_in_image 图像中的检测索引。
      */
+    // Detection 和 BatchImageMetadata 结构体现在定义在 models.hpp 中
     void saveAnnotatedImage(const Detection &det,
                             const BatchImageMetadata &image_meta,
                             int detection_idx_in_image);

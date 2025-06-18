@@ -1,4 +1,4 @@
-#include "object_tracker.hpp"
+#include "object_tracker.hpp" // Now correctly includes models.hpp implicitly
 #include <iostream>
 #include <set>
 #include <iomanip> // For std::fixed, std::setprecision
@@ -7,30 +7,7 @@
 // 结构体方法实现
 // =========================================================
 
-cv::Rect2f Detection::toCvRect2f(const BatchImageMetadata& meta) const {
-    // 将模型输入空间的坐标反变换到原始图像空间
-    // 步骤 1: 移除 letterbox 填充
-    float x1_unpadded = x1 - meta.pad_w_left;
-    float y1_unpadded = y1 - meta.pad_h_top;
-    float x2_unpadded = x2 - meta.pad_w_left;
-    float y2_unpadded = y2 - meta.pad_h_top;
-
-    // 步骤 2: 反缩放回原始尺寸
-    int x1_orig = static_cast<int>(std::round(x1_unpadded / meta.scale_to_model));
-    int y1_orig = static_cast<int>(std::round(y1_unpadded / meta.scale_to_model));
-    int x2_orig = static_cast<int>(std::round(x2_unpadded / meta.scale_to_model));
-    int y2_orig = static_cast<int>(std::round(y2_unpadded / meta.scale_to_model));
-
-    // 步骤 3: 钳制到原始图像边界
-    x1_orig = std::max(0, std::min(x1_orig, meta.original_w - 1));
-    y1_orig = std::max(0, std::min(y1_orig, meta.original_h - 1));
-    x2_orig = std::max(0, std::min(x2_orig, meta.original_w - 1));
-    y2_orig = std::max(0, std::min(y2_orig, meta.original_h - 1));
-
-    return cv::Rect2f(static_cast<float>(x1_orig), static_cast<float>(y1_orig),
-                      static_cast<float>(x2_orig - x1_orig), static_cast<float>(y2_orig - y1_orig));
-}
-
+// Detection::toCvRect2f 的实现现在放在 models.hpp 中，所以这里不再需要
 
 TrackedObject::TrackedObject(int new_id, const Detection& det, const BatchImageMetadata& meta, int current_frame_index)
     : id(new_id), class_id(det.class_id), confidence(det.confidence), frames_since_last_detection(0),
