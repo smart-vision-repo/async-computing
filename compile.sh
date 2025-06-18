@@ -39,6 +39,7 @@ compile() {
         video_processor.cpp
         packet_decoder.cpp
         message_proxy.cpp
+        object_tracker.cpp
         tensor_inferencer.cpp
     )
 
