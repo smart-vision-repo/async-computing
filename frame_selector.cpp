@@ -19,6 +19,9 @@ void FrameSelector::removeDulicatedFrames(
       holding_detected_frame.meta.global_frame_index;
 
   bool output = true;
+  std::cout << "holding: " << holding_frame_index
+            << "incoming: " << incomming_frame.meta.global_frame_index
+            << std::endl;
   if (holding_frame_index + interval_ ==
       incomming_frame.meta.global_frame_index) {
     // const Detection &latest_detection = latest_frame.detection;
