@@ -946,13 +946,13 @@ void TensorInferencer::process_single_output(
     }
 
     // 仅打印最终被判定为目标类的检测框
-    std::cout << "[输出] Frame " << image_meta.global_frame_index
-              << ", Class: " << this->object_name_ << " (" << det.class_id
-              << ")"
-              << ", Confidence: " << std::fixed << std::setprecision(4)
-              << det.confidence << std::endl;
+    // std::cout << "[输出] Frame " << image_meta.global_frame_index
+    //           << ", Class: " << this->object_name_ << " (" << det.class_id
+    //           << ")"
+    //           << ", Confidence: " << std::fixed << std::setprecision(4)
+    //           << det.confidence << std::endl;
 
-    saveAnnotatedImage(det, image_meta, static_cast<int>(i));
+    saveAnnotatedImage(det, image_meta);
 
     InferenceResult res;
     std::ostringstream oss;
@@ -1038,8 +1038,7 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
 }
 
 void TensorInferencer::saveAnnotatedImage(const Detection &det,
-                                          const BatchImageMetadata &image_meta,
-                                          int detection_idx_in_image) {
+                                          const BatchImageMetadata &image_meta) {
 
   if (!image_meta.is_real_image ||
       image_meta.original_image_for_callback.empty()) {
