@@ -217,14 +217,6 @@ int VideoProcessor::process() {
   skipped_frames += pool; // Add final pool to skipped frames
 
 
-  TaskDecodeInfo taskDecodeInfo= TaskDecodeInfo();
-  taskDecodeInfo.taskId = task_id_;
-  taskDecodeInfo.decoded_frames = 0;
-  taskDecodeInfo.disposed_frames =pool;
-  taskDecodeInfo.infer_frames = 0;
-  taskDecodeInfo.total = pool;
-  messageProxy_.sendDecodeInfo(taskDecodeInfo);
-
   // Wait for all decoding and inference tasks to complete using a single lock
   // and CV
   std::cout << "\nWaiting for all tasks to complete..." << std::endl;
@@ -263,9 +255,14 @@ int VideoProcessor::process() {
   delete pkts;             // Delete the pkts list itself
   pkts = nullptr;
 
-  TaskDecodeInfo taskDecodeInfo = TaskDecodeInfo();
+
+  // 发送最后一个包的解码信息.
+  TaskDecodeInfo taskDecodeInfo= TaskDecodeInfo();
   taskDecodeInfo.taskId = task_id_;
-  taskDecodeInfo.total = pool; 
+  taskDecodeInfo.decoded_frames = 0;
+  taskDecodeInfo.disposed_frames =pool;
+  taskDecodeInfo.infer_frames = 0;
+  taskDecodeInfo.total = pool;
   messageProxy_.sendDecodeInfo(taskDecodeInfo);
 
   std::cout << "-------------------" << std::endl;
@@ -273,11 +270,11 @@ int VideoProcessor::process() {
       (frame_idx_ > 0)
           ? (static_cast<float>(decoded_frames) * 100.0f / frame_idx_)
           : 0.0f;
-  std::cout << "Decoded Frames: " << decoded_frames << std::endl
-            << "Skipped Frames: " << skipped_frames << std::endl
-            << "Discrepancy: " << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
-            << "Percentage: " << std::fixed << std::setprecision(2) << percentage << "%" << std::endl
-            << "hits: " << total_hits << std::endl
+  std::cout << "Decoded: " << decoded_frames << std::endl
+            << "Skipped: " << skipped_frames << std::endl
+            << "Inferred: " << total_decoded_frames.load() << std::endl
+            << "Percentage :"  << std::fixed << std::setprecision(2) <<  percentage << "%" << std::endl
+            << "Discrepancy : " << (frame_idx_ - decoded_frames - skipped_frames) << std::endl
             << "Total: " << decoded_frames + skipped_frames << std::endl;
 
   return 0;
