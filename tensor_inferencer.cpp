@@ -63,6 +63,13 @@ TensorInferencer::TensorInferencer(int task_id, int video_height,
       outputIndex_(-1), inputDevice_(nullptr), outputDevice_(nullptr),
       num_classes_(0), result_callback_(resultCallback),
       pack_callback_(packCallback), constant_metadata_initialized_(false) {
+
+  FrameSelectorCallback frameSelectorCallback =
+      [this](const Detection &det, const BatchImageMetadata &image_meta) {
+        this->saveAnnotatedImage(det, image_meta);
+      };
+
+  frameSelector.emplace(interval_, 0.05f, frameSelectorCallback);
   std::cout << "[初始化] TensorInferencer，视频尺寸: " << video_width << "x"
             << video_height << std::endl;
   std::cout << "[初始化] 目标对象: " << object_name_
@@ -945,14 +952,8 @@ void TensorInferencer::process_single_output(
       continue;
     }
 
-    // 仅打印最终被判定为目标类的检测框
-    // std::cout << "[输出] Frame " << image_meta.global_frame_index
-    //           << ", Class: " << this->object_name_ << " (" << det.class_id
-    //           << ")"
-    //           << ", Confidence: " << std::fixed << std::setprecision(4)
-    //           << det.confidence << std::endl;
-
-    saveAnnotatedImage(det, image_meta);
+    frameSelector->removeDulicatedFrames({det, image_meta});
+    // saveAnnotatedImage(det, image_meta);
 
     InferenceResult res;
     std::ostringstream oss;
@@ -1037,8 +1038,8 @@ TensorInferencer::applyNMS(const std::vector<Detection> &detections,
   return result;
 }
 
-void TensorInferencer::saveAnnotatedImage(const Detection &det,
-                                          const BatchImageMetadata &image_meta) {
+void TensorInferencer::saveAnnotatedImage(
+    const Detection &det, const BatchImageMetadata &image_meta) {
 
   if (!image_meta.is_real_image ||
       image_meta.original_image_for_callback.empty()) {

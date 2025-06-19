@@ -23,7 +23,7 @@ struct InferenceResult {
 
 // 解码过程信息
 struct TaskDecodeInfo {
-  int taskId; 
+  int taskId;
   int type = 20;
   int decoded_frames;
   int disposed_frames;
@@ -70,10 +70,13 @@ struct CachedFrameGeometry {
   int pad_h_top = 0;
 };
 
-
 // 用于筛选推理结果中的图片
-struct  FrameSelectorInfo
-{
-  Detection *detection;
-  BatchImageMetadata *meta;
+struct DetectedFrame {
+  Detection detection;
+  BatchImageMetadata meta;
+};
+
+struct FrameSelection {
+  DetectedFrame info;
+  bool output;
 };

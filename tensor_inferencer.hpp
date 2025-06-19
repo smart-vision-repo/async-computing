@@ -1,15 +1,16 @@
 #pragma once
 
 #include "NvInfer.h"
+#include "frame_selector.hpp"
 #include "models.hpp" // Contains InferenceInput and InferenceResult
 #include <functional> // For std::function
 #include <map>
 #include <mutex>                 // For thread safety
 #include <opencv2/core/cuda.hpp> // For cv::cuda::GpuMat
 #include <opencv2/opencv.hpp>
+#include <optional>
 #include <string>
 #include <vector>
-
 
 // 推理回调函数类型
 using InferResultCallback = std::function<void(const InferenceResult &results)>;
@@ -64,6 +65,7 @@ private:
   // Callback and synchronization
   InferResultCallback result_callback_;
   InferPackCallback pack_callback_;
+  std::optional<FrameSelector> frameSelector;
   std::mutex batch_mutex_;
 
   // Cached metadata for constant input size optimization
@@ -92,8 +94,7 @@ private:
                                   float iou_threshold);
   float calculateIoU(const Detection &a, const Detection &b);
   void saveAnnotatedImage(const Detection &det,
-                          const BatchImageMetadata &image_meta,
-                          int detection_idx_in_image);
+                          const BatchImageMetadata &image_meta);
   static std::vector<char> readEngineFile(const std::string &enginePath);
   static int roundToNearestMultiple(int val, int base = 32);
 };
