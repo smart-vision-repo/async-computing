@@ -19,9 +19,9 @@ void FrameSelector::removeDulicatedFrames(
       holding_detected_frame.meta.global_frame_index;
 
   bool output = true;
-  std::cout << holding_frame_index
-            << ", " << incomming_frame.meta.global_frame_index
-            << std::endl;
+  // std::cout << holding_frame_index
+  //           << ", " << incomming_frame.meta.global_frame_index
+  //           << std::endl;
 
   if (holding_frame_index + interval_ ==
       incomming_frame.meta.global_frame_index) {
@@ -37,7 +37,7 @@ void FrameSelector::removeDulicatedFrames(
     // }
     output = false;
     holdingFrames.back().output = false;
-    std::cout << "这一帧不输出:" << holding_frame_index << std::endl;
+    // std::cout << "这一帧不输出:" << holding_frame_index << std::endl;
   }
 
   if (output) {
