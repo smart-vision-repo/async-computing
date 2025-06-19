@@ -39,6 +39,7 @@ compile() {
         video_processor.cpp
         packet_decoder.cpp
         message_proxy.cpp
+        frame_selector.cpp
         tensor_inferencer.cpp
     )
 
