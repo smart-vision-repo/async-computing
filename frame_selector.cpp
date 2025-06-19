@@ -13,29 +13,32 @@ void FrameSelector::removeDulicatedFrames(
     holdingFrames.push_back({incomming_frame, true});
     return;
   }
-  const FrameSelection &latest_selection = holdingFrames.back();
-  const DetectedFrame &latest_frame = latest_selection.info;
-  const int latest_frame_index = latest_frame.meta.global_frame_index;
+  const FrameSelection &holding_selection = holdingFrames.back();
+  const DetectedFrame &holding_detected_frame = holding_selection.info;
+  const int holding_frame_index =
+      holding_detected_frame.meta.global_frame_index;
 
   bool output = true;
-  if (latest_frame_index + interval_ ==
+  if (holding_frame_index + interval_ ==
       incomming_frame.meta.global_frame_index) {
-    const Detection &latest_detection = latest_frame.detection;
-    const Detection &incoming_detection = incomming_frame.detection;
-    float latest_frame_box_area = calculate_bbox_area(latest_detection);
-    float incoming_frame_box_area = calculate_bbox_area(incoming_detection);
-    float delta = std::abs(incoming_frame_box_area - latest_frame_box_area) /
-                  latest_frame_box_area;
-    if (delta < area_delta_threshhold_) {
-      output = false;
-      holdingFrames.back().output = output;
-    }
+    // const Detection &latest_detection = latest_frame.detection;
+    // const Detection &incoming_detection = incomming_frame.detection;
+    // float latest_frame_box_area = calculate_bbox_area(latest_detection);
+    // float incoming_frame_box_area = calculate_bbox_area(incoming_detection);
+    // float delta = std::abs(incoming_frame_box_area - latest_frame_box_area) /
+    //               latest_frame_box_area;
+    // if (delta < area_delta_threshhold_) {
+    //   output = false;
+    //   holdingFrames.back().output = output;
+    // }
+    output = false;
+    holdingFrames.back().output = output;
   }
 
   if (output) {
-    for (const auto &frameSelection : holdingFrames) {
-      if (frameSelection.output) {
-        callback_(frameSelection.info.detection, frameSelection.info.meta);
+    for (const auto &holdingFrame : holdingFrames) {
+      if (holdingFrame.output) {
+        callback_(holdingFrame.info.detection, holdingFrame.info.meta);
       }
     }
     holdingFrames.clear();
