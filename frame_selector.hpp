@@ -1,18 +1,21 @@
 #pragma once
 #include "models.hpp"
+#include <functional> // For std::function
 #include <memory>
 #include <string>
-#include <functional> // For std::function
 
 using FrameSelectorCallback = std::function<void(
     const Detection &deection, const BatchImageMetadata &meta)>;
 class FrameSelector {
 public:
-  FrameSelector(const int inverval, const FrameSelectorCallback &callback);
+  FrameSelector(const int inverval, const float area_delta_threshhold,
+                const FrameSelectorCallback &callback);
   void removeDulicatedFrames(const FrameSelectorInfo &info);
 
 private:
   int interval_ = 30;
+  float area_delta_threshhold_ = 1.0f;
   FrameSelectorCallback callback_;
   std::vector<FrameSelectorInfo> *holdingFrames;
+  float calculate_bbox_area(const Detection &det) const;
 };
